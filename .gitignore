@@ -1,0 +1,51 @@
+# Composer
+/vendor/
+/composer.lock
+
+# IDE
+/.idea/
+/.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHPUnit
+.phpunit.result.cache
+coverage/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+/storage/logs/*
+*.log
+
+# Guard runtime artifacts (do NOT commit)
+storage/guard/cache/
+storage/guard/patches/
+
+# Guard baseline — COMMIT THIS (needed for CI baseline workflow)
+!storage/guard/baseline.json
+
+# Claude / AI tooling
+/.claude/
+
+# Node / frontend (ako ikad dodaš demo app unutra)
+/node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build / temp
+/build/
+/dist/
+/tmp/
+/.cache/
+
+# GitHub / CI local artifacts
+.guard-report.md
+guard-report.md
+report.md
+report.json
