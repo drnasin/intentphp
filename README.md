@@ -22,7 +22,7 @@ Add the last command to CI — Guard will now fail builds only on **new** securi
 Install Guard as a dev dependency:
 
 ```bash
-composer require drnasin/intentphp --dev
+composer require intentphp/guard --dev
 ```
 
 The service provider is auto-discovered. Optionally publish the config:
