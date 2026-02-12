@@ -1,5 +1,11 @@
 # IntentPHP Guard
 
+[![Tests](https://github.com/drnasin/intentphp/actions/workflows/tests.yml/badge.svg)](https://github.com/drnasin/intentphp/actions/workflows/tests.yml)
+[![Latest Version](https://img.shields.io/github/v/tag/drnasin/intentphp?label=version&sort=semver)](https://github.com/drnasin/intentphp/releases)
+[![PHP](https://img.shields.io/badge/php-8.2%2B-8892BF)](https://php.net)
+[![Laravel](https://img.shields.io/badge/laravel-10%20%7C%2011%20%7C%2012-FF2D20)](https://laravel.com)
+[![License](https://img.shields.io/github/license/drnasin/intentphp)](LICENSE)
+
 A Laravel CLI tool that scans your application for common security risks: authorization gaps, unsafe query input, and mass assignment vulnerabilities.
 
 ## Quick Start
