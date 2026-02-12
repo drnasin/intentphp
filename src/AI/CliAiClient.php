@@ -46,7 +46,7 @@ class CliAiClient implements AiClientInterface
         try {
             $result = $this->runner->run($command, $fullPrompt, $this->timeout);
         } catch (\Throwable $e) {
-            Log::warning('Guard CLI AI process error', [
+            $this->log('Guard CLI AI process error', [
                 'binary' => $this->binary,
                 'message' => $e->getMessage(),
             ]);
@@ -55,7 +55,7 @@ class CliAiClient implements AiClientInterface
         }
 
         if (! $result->isSuccessful()) {
-            Log::warning('Guard CLI AI command failed', [
+            $this->log('Guard CLI AI command failed', [
                 'binary' => $this->binary,
                 'exit_code' => $result->exitCode,
                 'stderr' => mb_substr($result->stderr, 0, 500),
@@ -69,5 +69,17 @@ class CliAiClient implements AiClientInterface
         }
 
         return $this->adapter->parseOutput($result->stdout);
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function log(string $message, array $context): void
+    {
+        try {
+            Log::warning($message, $context);
+        } catch (\Throwable) {
+            // Facade not available (e.g. outside Laravel app context)
+        }
     }
 }

@@ -93,6 +93,14 @@ class MarkdownReporterTest extends TestCase
     public function test_includes_suppressed_section_when_requested(): void
     {
         $reporter = $this->makeReporter();
+        $active = Finding::high(
+            check: 'route-authorization',
+            message: 'Active finding',
+            file: null,
+            line: null,
+            context: [],
+            fix_hint: '',
+        );
         $suppressed = Finding::high(
             check: 'route-authorization',
             message: 'Suppressed finding',
@@ -102,7 +110,7 @@ class MarkdownReporterTest extends TestCase
             fix_hint: '',
         )->withSuppression('baseline');
 
-        $reporter->report([$suppressed], ['include_suppressed' => true]);
+        $reporter->report([$active, $suppressed], ['include_suppressed' => true]);
 
         $this->assertStringContainsString('Suppressed findings (1)', $this->capturedOutput);
         $this->assertStringContainsString('~~Suppressed finding~~', $this->capturedOutput);

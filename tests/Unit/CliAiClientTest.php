@@ -40,6 +40,22 @@ class FakeProcessRunner implements ProcessRunnerInterface
     }
 }
 
+class CapturingProcessRunner implements ProcessRunnerInterface
+{
+    public ?string $lastStdin = null;
+
+    public function run(array $command, string $stdin, int $timeout): ProcessResult
+    {
+        if ($stdin === '') {
+            return new ProcessResult(0, '/usr/bin/claude', '');
+        }
+
+        $this->lastStdin = $stdin;
+
+        return new ProcessResult(0, 'AI response', '');
+    }
+}
+
 class CliAiClientTest extends TestCase
 {
     // ── isAvailable ─────────────────────────────────────────────────
@@ -171,20 +187,7 @@ class CliAiClientTest extends TestCase
 
     public function test_generate_prepends_prompt_prefix(): void
     {
-        $capturedStdin = null;
-        $runner = $this->createMock(ProcessRunnerInterface::class);
-        $runner->method('run')->willReturnCallback(
-            function (array $cmd, string $stdin, int $timeout) use (&$capturedStdin) {
-                static $call = 0;
-                $call++;
-                if ($call === 1) {
-                    return new ProcessResult(0, '/usr/bin/claude'); // which
-                }
-                $capturedStdin = $stdin;
-
-                return new ProcessResult(0, 'AI response');
-            }
-        );
+        $runner = new CapturingProcessRunner();
 
         $client = new CliAiClient(
             adapter: new GenericAdapter(),
@@ -197,8 +200,9 @@ class CliAiClientTest extends TestCase
 
         $client->generate('Fix this bug');
 
-        $this->assertStringStartsWith('You are a security expert.', $capturedStdin);
-        $this->assertStringContainsString('Fix this bug', $capturedStdin);
+        $this->assertNotNull($runner->lastStdin, 'Expected stdin to be captured');
+        $this->assertStringStartsWith('You are a security expert.', $runner->lastStdin);
+        $this->assertStringContainsString('Fix this bug', $runner->lastStdin);
     }
 
     // ── Adapter selection ───────────────────────────────────────────
