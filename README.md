@@ -5,7 +5,7 @@ A Laravel CLI tool that scans your application for common security risks: author
 ## Quick Start
 
 ```bash
-composer require drnasin/intentphp --dev
+composer require intentphp/guard --dev
 php artisan guard:baseline
 php artisan guard:scan --baseline --strict
 ```
