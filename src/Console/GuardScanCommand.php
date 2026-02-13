@@ -11,9 +11,14 @@ use IntentPHP\Guard\AI\FixSuggestionGenerator;
 use IntentPHP\Guard\AI\PromptBuilder;
 use IntentPHP\Guard\Cache\ScanCache;
 use IntentPHP\Guard\Checks\DangerousQueryInputCheck;
+use IntentPHP\Guard\Checks\IntentAuthCheck;
+use IntentPHP\Guard\Checks\IntentMassAssignmentCheck;
 use IntentPHP\Guard\Checks\MassAssignmentCheck;
 use IntentPHP\Guard\Checks\RouteAuthorizationCheck;
+use IntentPHP\Guard\Checks\RouteProtectionDetector;
 use IntentPHP\Guard\Git\GitHelper;
+use IntentPHP\Guard\Intent\IntentContext;
+use IntentPHP\Guard\Intent\IntentEnricher;
 use IntentPHP\Guard\Laravel\ProjectMap;
 use IntentPHP\Guard\Report\ConsoleReporter;
 use IntentPHP\Guard\Report\GitHubReporter;
@@ -101,8 +106,14 @@ class GuardScanCommand extends Command
             $this->newLine();
         }
 
+        // 0b. Load intent spec (optional)
+        $intentContext = $this->loadIntentContext($isQuiet);
+        if ($intentContext === false) {
+            return self::FAILURE;
+        }
+
         // 1. Run scanner
-        $scannerResult = $this->buildScanner($router, $changedFiles);
+        $scannerResult = $this->buildScanner($router, $changedFiles, $intentContext);
         $scanner = $scannerResult['scanner'];
         $routeScanMode = $scannerResult['route_scan_mode'];
 
@@ -117,12 +128,13 @@ class GuardScanCommand extends Command
         $findings = $scanner->runAndFilter($severity);
 
         // Apply route findings filter when in filtered mode
+        $routeChecks = ['route-authorization', 'intent-auth'];
         if ($routeScanMode === 'filtered' && $changedFiles !== null) {
             $findings = $this->filterRouteFindings($findings, $changedFiles);
         } elseif ($routeScanMode === 'skipped') {
             $findings = array_values(array_filter(
                 $findings,
-                fn (Finding $f) => $f->check !== 'route-authorization',
+                fn (Finding $f) => ! in_array($f->check, $routeChecks, true),
             ));
         }
 
@@ -132,6 +144,19 @@ class GuardScanCommand extends Command
 
         $projectMap = new ProjectMap($router, $cache, $cacheVersion);
         $findings = $projectMap->enrich($findings);
+
+        // 2b. Enrich mass-assignment findings with intent spec details
+        if ($intentContext instanceof IntentContext) {
+            $findings = IntentEnricher::enrich($findings, $intentContext->spec);
+        }
+
+        // 2c. Print intent context warnings
+        if ($intentContext instanceof IntentContext && $intentContext->warnings !== [] && ! $isQuiet) {
+            foreach ($intentContext->warnings as $warning) {
+                $this->warn("Intent: {$warning}");
+            }
+            $this->newLine();
+        }
 
         // 3. Apply inline ignores
         /** @var array<string, mixed> $config */
@@ -235,10 +260,41 @@ class GuardScanCommand extends Command
     }
 
     /**
+     * Load and validate the intent spec, if present.
+     *
+     * @return IntentContext|null|false  IntentContext on success, null if file missing, false on error
+     */
+    private function loadIntentContext(bool $isQuiet): IntentContext|null|false
+    {
+        $specPath = base_path('intent/intent.yaml');
+        $result = IntentContext::tryLoad($specPath);
+
+        if ($result['errors'] !== []) {
+            foreach ($result['errors'] as $error) {
+                $this->error("Intent spec error: {$error}");
+            }
+
+            return false;
+        }
+
+        $context = $result['context'];
+
+        if ($context === null) {
+            return null;
+        }
+
+        if (! $isQuiet) {
+            $this->line('  Intent spec loaded.');
+        }
+
+        return $context;
+    }
+
+    /**
      * @param string[]|null $changedFiles
      * @return array{scanner: Scanner, route_scan_mode: string}
      */
-    private function buildScanner(Router $router, ?array $changedFiles = null): array
+    private function buildScanner(Router $router, ?array $changedFiles = null, ?IntentContext $intentContext = null): array
     {
         /** @var array<string, mixed> $config */
         $config = config('guard', []);
@@ -250,17 +306,33 @@ class GuardScanCommand extends Command
 
         $routeScanMode = GitHelper::determineRouteScanMode($changedFiles);
 
-        $scanner = new Scanner([
-            new RouteAuthorizationCheck($router, $authMiddlewares, $publicRoutes),
+        $detector = new RouteProtectionDetector($authMiddlewares);
+
+        $checks = [
+            new RouteAuthorizationCheck($router, $authMiddlewares, $publicRoutes, $detector),
             new DangerousQueryInputCheck($controllersPath, $changedFiles),
             new MassAssignmentCheck($modelsPath, $controllersPath, $changedFiles),
-        ]);
+        ];
+
+        if ($intentContext !== null) {
+            $spec = $intentContext->spec;
+
+            if ($spec->auth->rules !== []) {
+                $checks[] = new IntentAuthCheck($router, $spec, $detector);
+            }
+
+            if ($spec->data->models !== []) {
+                $checks[] = new IntentMassAssignmentCheck($modelsPath, $spec, $intentContext);
+            }
+        }
+
+        $scanner = new Scanner($checks);
 
         return ['scanner' => $scanner, 'route_scan_mode' => $routeScanMode];
     }
 
     /**
-     * Filter route-authorization findings to only those whose controller file is in the changed set.
+     * Filter route-authorization and intent-auth findings to only those whose controller file is in the changed set.
      *
      * @param Finding[] $findings
      * @param string[] $changedFiles
@@ -268,6 +340,7 @@ class GuardScanCommand extends Command
      */
     private function filterRouteFindings(array $findings, array $changedFiles): array
     {
+        $routeChecks = ['route-authorization', 'intent-auth'];
         $basePath = str_replace('\\', '/', rtrim(base_path(), '/\\'));
 
         // Normalize changed files to repo-relative paths with forward slashes
@@ -284,7 +357,7 @@ class GuardScanCommand extends Command
         $classFileMap = [];
 
         foreach ($findings as $finding) {
-            if ($finding->check !== 'route-authorization') {
+            if (! in_array($finding->check, $routeChecks, true)) {
                 continue;
             }
 
@@ -312,8 +385,8 @@ class GuardScanCommand extends Command
             }
         }
 
-        return array_values(array_filter($findings, function (Finding $finding) use ($classFileMap, $changedRelative) {
-            if ($finding->check !== 'route-authorization') {
+        return array_values(array_filter($findings, function (Finding $finding) use ($classFileMap, $changedRelative, $routeChecks) {
+            if (! in_array($finding->check, $routeChecks, true)) {
                 return true;
             }
 

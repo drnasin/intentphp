@@ -24,6 +24,8 @@ class Fingerprint
         return match ($finding->check) {
             'route-authorization' => self::routeIdentifier($finding),
             'mass-assignment' => self::modelIdentifier($finding),
+            'intent-auth' => self::intentAuthIdentifier($finding),
+            'intent-mass-assignment' => self::intentMassAssignmentIdentifier($finding),
             default => self::snippetIdentifier($finding),
         };
     }
@@ -43,6 +45,31 @@ class Fingerprint
         $pattern = $finding->context['pattern'] ?? '';
 
         return "model:{$model}:{$pattern}";
+    }
+
+    private static function intentAuthIdentifier(Finding $finding): string
+    {
+        $ruleIds = $finding->context['matched_rule_ids'] ?? [];
+        sort($ruleIds);
+        $firstRuleId = $ruleIds[0] ?? '';
+
+        $routeName = $finding->context['route_name'] ?? '';
+        $uri = $finding->context['uri'] ?? '';
+        $routeKey = $routeName !== '' ? $routeName : $uri;
+
+        $methods = $finding->context['methods'] ?? [];
+        sort($methods);
+        $methodsStr = implode(',', $methods);
+
+        return "intent:auth:{$firstRuleId}:route:{$routeKey}:methods:{$methodsStr}";
+    }
+
+    private static function intentMassAssignmentIdentifier(Finding $finding): string
+    {
+        $fqcn = $finding->context['model_fqcn'] ?? '';
+        $pattern = $finding->context['pattern'] ?? '';
+
+        return "intent:mass-assignment:{$fqcn}:{$pattern}";
     }
 
     private static function snippetIdentifier(Finding $finding): string

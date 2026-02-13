@@ -7,7 +7,7 @@ namespace IntentPHP\Guard\Cache;
 class ScanCache
 {
     /** Bump this on each release to invalidate caches across upgrades. */
-    public const VERSION = '0.6.0';
+    public const VERSION = '1.1.0';
 
     private const VERSION_FILE = '.version';
 
