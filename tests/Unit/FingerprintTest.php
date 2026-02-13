@@ -117,4 +117,77 @@ class FingerprintTest extends TestCase
 
         $this->assertSame($a->fingerprint(), $b->fingerprint());
     }
+
+    public function test_intent_auth_fingerprint_with_sorted_methods(): void
+    {
+        $a = Finding::high(
+            check: 'intent-auth',
+            message: 'Route missing auth.',
+            context: [
+                'matched_rule_ids' => ['rule-b', 'rule-a'],
+                'uri' => '/orders',
+                'route_name' => 'orders.index',
+                'methods' => ['POST', 'GET'],
+            ],
+        );
+
+        $b = Finding::high(
+            check: 'intent-auth',
+            message: 'Route missing auth.',
+            context: [
+                'matched_rule_ids' => ['rule-a', 'rule-b'],
+                'uri' => '/orders',
+                'route_name' => 'orders.index',
+                'methods' => ['GET', 'POST'],
+            ],
+        );
+
+        $this->assertSame($a->fingerprint(), $b->fingerprint());
+        $this->assertSame(40, strlen($a->fingerprint()));
+    }
+
+    public function test_intent_mass_assignment_fingerprint_with_model_fqcn(): void
+    {
+        $finding = Finding::high(
+            check: 'intent-mass-assignment',
+            message: 'Model missing $fillable.',
+            context: [
+                'model_fqcn' => 'App\\Models\\User',
+                'pattern' => 'missing_fillable',
+            ],
+        );
+
+        $fp = $finding->fingerprint();
+        $this->assertSame(40, strlen($fp));
+
+        // Same finding produces same fingerprint
+        $this->assertSame($fp, $finding->fingerprint());
+    }
+
+    public function test_different_rule_ids_produce_different_intent_auth_fingerprints(): void
+    {
+        $a = Finding::high(
+            check: 'intent-auth',
+            message: 'Missing auth.',
+            context: [
+                'matched_rule_ids' => ['rule-alpha'],
+                'uri' => '/orders',
+                'route_name' => '',
+                'methods' => ['GET'],
+            ],
+        );
+
+        $b = Finding::high(
+            check: 'intent-auth',
+            message: 'Missing auth.',
+            context: [
+                'matched_rule_ids' => ['rule-beta'],
+                'uri' => '/orders',
+                'route_name' => '',
+                'methods' => ['GET'],
+            ],
+        );
+
+        $this->assertNotSame($a->fingerprint(), $b->fingerprint());
+    }
 }

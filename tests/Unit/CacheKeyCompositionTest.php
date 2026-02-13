@@ -66,6 +66,6 @@ class CacheKeyCompositionTest extends TestCase
 
     public function test_uses_version_constant(): void
     {
-        $this->assertSame('0.6.0', ScanCache::VERSION);
+        $this->assertSame('1.1.0', ScanCache::VERSION);
     }
 }

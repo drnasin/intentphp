@@ -170,6 +170,79 @@ Generates PHPUnit tests in `tests/Feature/GuardGenerated/`:
 - `DangerousInputValidationTest.php` — malicious input regression tests
 - `MassAssignmentProtectionTest.php` — model protection assertions
 
+### `guard:intent` — Manage the intent spec
+
+```bash
+# Scaffold a starter intent/intent.yaml
+php artisan guard:intent init
+
+# Validate an existing intent spec
+php artisan guard:intent validate
+
+# Show parsed spec summary
+php artisan guard:intent show
+```
+
+Manages the optional `intent/intent.yaml` spec file. `init` generates a starter file with example auth rules and model declarations. `validate` checks the spec for parse and schema errors. `show` prints a summary of the parsed spec. The intent spec is optional — Guard works without it.
+
+### `guard:doctor` — Environment diagnostics
+
+```bash
+php artisan guard:doctor
+```
+
+Runs a series of environment checks and prints a diagnostic report with actionable guidance. Useful for verifying your setup after installation or troubleshooting issues.
+
+**Checks performed:**
+
+| Section | What it verifies |
+|---------|------------------|
+| Laravel Context | `artisan` file exists (confirms Laravel project) |
+| Storage / Writable | `storage/guard/`, `cache/`, and `patches/` directories are writable |
+| Git | `git` binary available and project is a git repository |
+| Baseline | Whether a baseline suppression file exists |
+| AI Driver | AI configuration, CLI tool availability, API key presence |
+| Cache | Cache enabled/disabled status and path |
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | No blocking errors (warnings are OK) |
+| `1` | Blocking errors found (e.g., storage not writable, not a Laravel app) |
+
+**Example output:**
+
+```
+IntentPHP Guard — Environment Diagnostics
+==========================================
+
+Laravel Context
+  [OK]    Artisan file found at /var/www/app/artisan
+
+Storage / Writable
+  [OK]    storage/guard/ is writable
+  [OK]    storage/guard/cache/ is writable
+  [OK]    storage/guard/patches/ is writable
+
+Git
+  [OK]    git binary found (git version 2.43.0)
+  [OK]    Repository detected — incremental scanning available.
+
+Baseline
+  [WARN]  No baseline file found. Run: php artisan guard:baseline
+
+AI Driver
+  [OK]    AI is disabled. Enable with GUARD_AI_ENABLED=true.
+
+Cache
+  [OK]    Cache enabled. Path: storage/guard/cache
+  [OK]    Tip: use --no-cache with guard:scan to bypass cache for a single run.
+
+──────────────────────────────────────────
+Result: 0 error(s), 1 warning(s) — all clear!
+```
+
 ## Checks
 
 ### 1. Route Authorization Coverage
@@ -183,6 +256,68 @@ Detects patterns where `$request->input()`, `$request->get()`, or `request()` he
 ### 3. Mass Assignment Risk
 
 Detects `Model::create($request->all())`, `->update($request->all())`, and `->fill($request->all())` when the model has no `$fillable` or uses `$guarded = []`. Usage of `$request->validated()` is flagged as MEDIUM severity.
+
+### 4. Intent Auth (`intent-auth`)
+
+Compares actual route middleware against requirements declared in the intent spec. Detects routes that should be authenticated, require a specific guard, or are declared public but lack auth middleware. Only active when `intent/intent.yaml` is present and contains `auth.rules`.
+
+### 5. Intent Mass Assignment (`intent-mass-assignment`)
+
+Checks model files against mass-assignment constraints declared in the intent spec. Detects models missing `$fillable` when declared as `explicit_allowlist`, forbidden attributes present in `$fillable`, and empty `$guarded` when declared as `guarded` mode. Only active when `intent/intent.yaml` is present and contains `data.models`.
+
+Intent checks are additive. A route can receive both a `route-authorization` finding and an `intent-auth` finding. They serve different purposes (config-driven vs spec-driven) and are independently suppressible via baseline or inline ignores.
+
+## Intent Spec (optional)
+
+Guard supports an optional `intent/intent.yaml` file at the project root. This file declares expected security properties (auth rules, model constraints) that Guard validates against your actual code.
+
+- If the file is missing, Guard behaves exactly as before. No configuration needed.
+- If the file is present and valid, additional `intent-auth` and `intent-mass-assignment` checks run alongside existing checks.
+- If the file has parse errors or validation failures, Guard prints the errors and exits non-zero.
+- This is fully additive. No existing behavior changes.
+
+### Setup
+
+```bash
+# Scaffold a starter intent spec
+php artisan guard:intent init
+
+# Run scan (intent checks activate automatically if spec exists)
+php artisan guard:scan
+```
+
+### Minimal example
+
+```yaml
+version: "0.1"
+project:
+  name: my-app
+  framework: laravel
+
+auth:
+  guards:
+    api: token
+  rules:
+    - id: api-protected
+      match:
+        routes:
+          prefix: /api
+      require:
+        authenticated: true
+        guard: api
+
+data:
+  models:
+    App\Models\User:
+      massAssignment:
+        mode: explicit_allowlist
+        allow: [name, email]
+        forbid: [is_admin]
+```
+
+### Warnings
+
+If the intent spec references a model whose file cannot be found on disk, Guard prints a warning and continues. Warnings do not produce findings and do not cause the scan to fail. The scan only fails if the spec itself is structurally invalid.
 
 ## Inline Suppressions
 

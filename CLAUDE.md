@@ -86,3 +86,91 @@ Auto-selection order when `driver=auto`: CLI available → OpenAI key set → Nu
 | `guard:fix` | Generate patches (template-based, `--ai` for AI fallback) |
 | `guard:apply` | Validate patches via `git apply --check` |
 | `guard:test-gen` | Auto-generate feature tests for findings |
+
+---
+
+## Project Direction (Important)
+
+IntentPHP Guard is the **first building block** of a larger IntentPHP ecosystem.
+
+Guard is not just a scanner — it is the safety and analysis layer that will later support:
+
+- intent-driven code generation
+- invariant checking
+- AI-assisted domain modeling
+- safe code transformation via patch proposals
+
+When adding new features, prefer designs that are:
+
+- deterministic first, AI second
+- patch/diff based, never auto-modifying user code
+- CI-friendly and incremental
+- interface-driven and replaceable
+
+Avoid hard-coding Laravel internals where abstraction is reasonable.
+
+---
+
+## Design Constraints (Do Not Break)
+
+- Never automatically modify user source code — only generate diffs or suggestions
+- All new behavior must be behind flags or new commands (no breaking default behavior)
+- Public CLI command behavior is considered API — avoid breaking changes
+- All expensive operations must support caching or incremental mode
+- All new logic should be testable without full Laravel boot where possible
+
+---
+
+## AI Usage Rules
+
+When implementing AI-related features:
+
+- AI output is always treated as untrusted input
+- Prefer structured formats (JSON with keys) when parsing AI responses
+- Never assume AI patch correctness — always validate or mark as proposal
+- Never send full repository contents — only minimal context snippets
+- AI drivers must have a Null fallback
+
+---
+
+## Next Planned Feature Areas
+
+Near-term roadmap (safe to implement when requested):
+
+1. GitHub Action improvements
+   - outputs / summary support
+   - PR comment mode
+   - optional markdown artifact upload
+
+2. Additional Checks
+   - validation coverage gaps
+   - missing policy bindings
+   - unsafe file upload handling
+   - missing rate limits on auth endpoints
+
+3. Developer Experience
+   - richer guard:doctor checks
+   - config self-validation
+   - guard:init setup command
+
+4. Intent Layer (future, experimental)
+   - intent spec file format (YAML/JSON)
+   - invariant definitions
+   - intent → code scaffold generator
+   - intent → guard rule generation
+
+Do not implement intent-layer features unless explicitly requested in prompt.
+
+---
+
+## When Unsure
+
+If a requested change:
+- touches CLI behavior
+- changes report formats
+- affects exit codes
+- modifies patch generation
+
+→ propose the plan first before coding.
+
+IMPORTANT: read and analyze the file [PROJECT_CONTEXT.md]()

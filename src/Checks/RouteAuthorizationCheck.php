@@ -11,10 +11,9 @@ use IntentPHP\Guard\Scan\Finding;
 class RouteAuthorizationCheck implements CheckInterface
 {
     /** @var string[] */
-    private readonly array $authMiddlewares;
-
-    /** @var string[] */
     private readonly array $publicRoutes;
+
+    private readonly RouteProtectionDetector $detector;
 
     /**
      * @param string[] $authMiddlewares
@@ -24,9 +23,10 @@ class RouteAuthorizationCheck implements CheckInterface
         private readonly Router $router,
         array $authMiddlewares = ['auth', 'auth:sanctum'],
         array $publicRoutes = [],
+        ?RouteProtectionDetector $detector = null,
     ) {
-        $this->authMiddlewares = $authMiddlewares;
         $this->publicRoutes = $publicRoutes;
+        $this->detector = $detector ?? new RouteProtectionDetector($authMiddlewares);
     }
 
     public function name(): string
@@ -47,9 +47,9 @@ class RouteAuthorizationCheck implements CheckInterface
                 continue;
             }
 
-            $middlewares = $this->collectMiddleware($route);
+            $middlewares = $this->detector->collectMiddleware($route);
 
-            if ($this->hasAuthMiddleware($middlewares)) {
+            if ($this->detector->hasAuthMiddleware($middlewares)) {
                 continue;
             }
 
@@ -102,31 +102,6 @@ class RouteAuthorizationCheck implements CheckInterface
 
             if (str_contains($pattern, '*') && fnmatch($pattern, $uri)) {
                 return true;
-            }
-        }
-
-        return false;
-    }
-
-    /** @return string[] */
-    private function collectMiddleware(Route $route): array
-    {
-        $middleware = $route->gatherMiddleware();
-
-        return array_values(array_map(
-            fn ($m) => is_string($m) ? $m : get_class($m),
-            $middleware,
-        ));
-    }
-
-    /** @param string[] $middlewares */
-    private function hasAuthMiddleware(array $middlewares): bool
-    {
-        foreach ($middlewares as $middleware) {
-            foreach ($this->authMiddlewares as $authMiddleware) {
-                if ($middleware === $authMiddleware || str_starts_with($middleware, $authMiddleware . ':')) {
-                    return true;
-                }
             }
         }
 
