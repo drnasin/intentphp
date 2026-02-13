@@ -8,8 +8,6 @@
 
 A Laravel CLI tool that scans your application for common security risks: authorization gaps, unsafe query input, and mass assignment vulnerabilities.
 
-Naravno — evo sve spremno u čistom Markdown formatu, copy-paste friendly za README. Bez dodatnih ukrasa, bez objašnjenja — samo gotov sadržaj.
-
 ## Why Guard?
 
 Most static analysis tools answer:  
