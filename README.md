@@ -40,13 +40,15 @@ Guard is:
 
 ## Comparison With Other Tools
 
+## Comparison With Other Tools
+
 | Tool type | Examples | What they focus on | How Guard differs |
 |------------|------------|---------------------|-------------------|
-Static analysis | PHPStan, Larastan | Type safety, code correctness, API misuse | Guard does not check types — it enforces **security and data invariants** |
-Security scanners (SAST) | Semgrep, CodeQL, Sonar | Pattern-based vulnerability detection | Guard uses a **project intent spec** — rules come from your declared policy, not a global pattern database |
-Laravel linters | Pint, style tools | Code style and formatting | Guard does not enforce style — it focuses on **auth and data-safety rules** |
-Config / policy scanners | CI security checkers | Known misconfiguration patterns | Guard validates your **declared security model** against actual code behavior |
-Runtime protection | WAF, middleware | Runtime request filtering and blocking | Guard runs **before deploy**, in CI, as static policy validation |
+| Static analysis | PHPStan, Larastan | Type safety, code correctness, API misuse | Guard does not check types — it enforces **security and data invariants** |
+| Security scanners (SAST) | Semgrep, CodeQL, Sonar | Pattern-based vulnerability detection | Guard uses a **project intent spec** — rules come from your declared policy, not a global pattern database |
+| Laravel linters | Pint, style tools | Code style and formatting | Guard does not enforce style — it focuses on **auth and data-safety rules** |
+| Config / policy scanners | CI security checkers | Known misconfiguration patterns | Guard validates your **declared security model** against actual code behavior |
+| Runtime protection | WAF, middleware | Runtime request filtering and blocking | Guard runs **before deploy**, in CI, as static policy validation |
 
 ## Quick Start
 
