@@ -8,6 +8,46 @@
 
 A Laravel CLI tool that scans your application for common security risks: authorization gaps, unsafe query input, and mass assignment vulnerabilities.
 
+Naravno — evo sve spremno u čistom Markdown formatu, copy-paste friendly za README. Bez dodatnih ukrasa, bez objašnjenja — samo gotov sadržaj.
+
+## Why Guard?
+
+Most static analysis tools answer:  
+**“Is this code valid?”**
+
+Guard answers a different question:  
+**“Does this code match the security and data-handling intent of this project?”**
+
+Guard introduces an optional **intent specification** (`intent/intent.yaml`) where you declare expected security and data rules — for example:
+
+- which routes must be authenticated
+- which guards must be used
+- which models must use explicit `$fillable`
+- which attributes must never be mass-assignable
+
+Guard then scans your code and reports mismatches between:
+
+> declared intent vs actual implementation
+
+This makes Guard especially useful in CI pipelines, security-sensitive Laravel applications, and multi-developer teams where architectural and security rules must stay enforced over time.
+
+Guard is:
+
+- ✅ additive — no breaking changes without intent spec
+- ✅ deterministic — stable fingerprints and reproducible results
+- ✅ CI-safe — predictable exit codes and output
+- ✅ non-invasive — never modifies your code
+
+## Comparison With Other Tools
+
+| Tool type | Examples | What they focus on | How Guard differs |
+|------------|------------|---------------------|-------------------|
+Static analysis | PHPStan, Larastan | Type safety, code correctness, API misuse | Guard does not check types — it enforces **security and data invariants** |
+Security scanners (SAST) | Semgrep, CodeQL, Sonar | Pattern-based vulnerability detection | Guard uses a **project intent spec** — rules come from your declared policy, not a global pattern database |
+Laravel linters | Pint, style tools | Code style and formatting | Guard does not enforce style — it focuses on **auth and data-safety rules** |
+Config / policy scanners | CI security checkers | Known misconfiguration patterns | Guard validates your **declared security model** against actual code behavior |
+Runtime protection | WAF, middleware | Runtime request filtering and blocking | Guard runs **before deploy**, in CI, as static policy validation |
+
 ## Quick Start
 
 ```bash
