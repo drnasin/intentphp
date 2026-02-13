@@ -17,6 +17,7 @@ use IntentPHP\Guard\AI\NullAiClient;
 use IntentPHP\Guard\AI\OpenAiClient;
 use IntentPHP\Guard\Console\GuardApplyCommand;
 use IntentPHP\Guard\Console\GuardBaselineCommand;
+use IntentPHP\Guard\Console\GuardDoctorCommand;
 use IntentPHP\Guard\Console\GuardFixCommand;
 use IntentPHP\Guard\Console\GuardScanCommand;
 use IntentPHP\Guard\Console\GuardTestGenCommand;
@@ -141,6 +142,7 @@ class GuardServiceProvider extends ServiceProvider
                 GuardFixCommand::class,
                 GuardTestGenCommand::class,
                 GuardApplyCommand::class,
+                GuardDoctorCommand::class,
             ]);
 
             $this->publishes([

@@ -1,7 +1,7 @@
 # IntentPHP Guard
 
 [![Tests](https://github.com/drnasin/intentphp/actions/workflows/tests.yml/badge.svg)](https://github.com/drnasin/intentphp/actions/workflows/tests.yml)
-[![Latest Version](https://img.shields.io/badge/version-0.6.0-blue)](https://github.com/drnasin/intentphp/releases)
+[![Latest Version](https://img.shields.io/github/v/release/drnasin/intentphp?display_name=tag&sort=semver)](https://github.com/drnasin/intentphp/releases)
 [![PHP](https://img.shields.io/badge/php-8.2%2B-8892BF)](https://php.net)
 [![Laravel](https://img.shields.io/badge/laravel-10%20%7C%2011%20%7C%2012-FF2D20)](https://laravel.com)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -169,6 +169,64 @@ Generates PHPUnit tests in `tests/Feature/GuardGenerated/`:
 - `RouteAuthorizationTest.php` — guest access assertions
 - `DangerousInputValidationTest.php` — malicious input regression tests
 - `MassAssignmentProtectionTest.php` — model protection assertions
+
+### `guard:doctor` — Environment diagnostics
+
+```bash
+php artisan guard:doctor
+```
+
+Runs a series of environment checks and prints a diagnostic report with actionable guidance. Useful for verifying your setup after installation or troubleshooting issues.
+
+**Checks performed:**
+
+| Section | What it verifies |
+|---------|------------------|
+| Laravel Context | `artisan` file exists (confirms Laravel project) |
+| Storage / Writable | `storage/guard/`, `cache/`, and `patches/` directories are writable |
+| Git | `git` binary available and project is a git repository |
+| Baseline | Whether a baseline suppression file exists |
+| AI Driver | AI configuration, CLI tool availability, API key presence |
+| Cache | Cache enabled/disabled status and path |
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | No blocking errors (warnings are OK) |
+| `1` | Blocking errors found (e.g., storage not writable, not a Laravel app) |
+
+**Example output:**
+
+```
+IntentPHP Guard — Environment Diagnostics
+==========================================
+
+Laravel Context
+  [OK]    Artisan file found at /var/www/app/artisan
+
+Storage / Writable
+  [OK]    storage/guard/ is writable
+  [OK]    storage/guard/cache/ is writable
+  [OK]    storage/guard/patches/ is writable
+
+Git
+  [OK]    git binary found (git version 2.43.0)
+  [OK]    Repository detected — incremental scanning available.
+
+Baseline
+  [WARN]  No baseline file found. Run: php artisan guard:baseline
+
+AI Driver
+  [OK]    AI is disabled. Enable with GUARD_AI_ENABLED=true.
+
+Cache
+  [OK]    Cache enabled. Path: storage/guard/cache
+  [OK]    Tip: use --no-cache with guard:scan to bypass cache for a single run.
+
+──────────────────────────────────────────
+Result: 0 error(s), 1 warning(s) — all clear!
+```
 
 ## Checks
 
