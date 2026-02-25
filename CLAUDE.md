@@ -173,4 +173,16 @@ If a requested change:
 
 → propose the plan first before coding.
 
-IMPORTANT: read and analyze the file [PROJECT_CONTEXT.md]()
+## IMPORTANT
+You are contributing to the IntentPHP / Guard project.
+
+[PROJECT_CONTEXT.md]() and [PROJECT_ROADMAP.md]() are authoritative.
+Do not expand scope beyond defined phases.
+Do not introduce runtime hooks.
+All features must be CLI-only, deterministic, additive, CI-safe.
+
+Before proposing architecture, self-check against:
+- scope rules
+- determinism rules
+- backward compatibility rules
+- DTO stability rules

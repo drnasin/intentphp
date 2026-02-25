@@ -49,3 +49,6 @@ yarn-error.log*
 guard-report.md
 report.md
 report.json
+PROJECT_CONTEXT.md
+PROJECT_ROADMAP.md
+/.phpunit.cache
