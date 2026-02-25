@@ -38,8 +38,6 @@ Guard is:
 
 ## Comparison With Other Tools
 
-## Comparison With Other Tools
-
 | Tool type | Examples | What they focus on | How Guard differs |
 |------------|------------|---------------------|-------------------|
 | Static analysis | PHPStan, Larastan | Type safety, code correctness, API misuse | Guard does not check types — it enforces **security and data invariants** |
