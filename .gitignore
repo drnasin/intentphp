@@ -52,3 +52,4 @@ report.json
 PROJECT_CONTEXT.md
 PROJECT_ROADMAP.md
 /.phpunit.cache
+/intentphp-guard-action/
