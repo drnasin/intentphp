@@ -1,5 +1,5 @@
 Note: Detailed acceptance criteria live in [/docs/ai/MILESTONES.md]()
-
+    
 # IntentPHP — Roadmap (Canonical)
 
 Goal: move from code-only analysis → toward declared intent + invariants + drift detection + safe generation.
@@ -16,15 +16,11 @@ Hard rules (apply to all phases):
 - Phase 1–7: Guard core (checks, baseline, incremental, fingerprints, CI behavior)
 - Phase 8: Intent Spec v0.1 (DTOs, loader/validator, includes/merge, guard:intent CLI)
 - Phase 9: Intent-aware checks (intent-auth, intent-mass-assignment, enrichers)
+- Phase 10: Drift Engine (auth + mass-assignment drift detection, deterministic fingerprints, golden tests, regression-tested wiring)
 
 ---
 
 ## 🚧 Platform Core (Must-ship backbone)
-
-### Phase 10 — Drift Engine (Spec ↔ Code)
-Goal: detect declared intent vs observed reality divergence.
-Outputs drift findings with deterministic fingerprints.
-No auto-fix. Reuse existing scanner + fingerprints.
 
 ### Phase 11 — Invariant Engine v1
 Goal: generalize checks into reusable invariants.
