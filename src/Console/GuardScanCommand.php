@@ -11,14 +11,19 @@ use IntentPHP\Guard\AI\FixSuggestionGenerator;
 use IntentPHP\Guard\AI\PromptBuilder;
 use IntentPHP\Guard\Cache\ScanCache;
 use IntentPHP\Guard\Checks\DangerousQueryInputCheck;
+use IntentPHP\Guard\Checks\Intent\IntentDriftCheck;
 use IntentPHP\Guard\Checks\IntentAuthCheck;
 use IntentPHP\Guard\Checks\IntentMassAssignmentCheck;
 use IntentPHP\Guard\Checks\MassAssignmentCheck;
 use IntentPHP\Guard\Checks\RouteAuthorizationCheck;
 use IntentPHP\Guard\Checks\RouteProtectionDetector;
 use IntentPHP\Guard\Git\GitHelper;
+use IntentPHP\Guard\Intent\Drift\Detectors\AuthDriftDetector;
+use IntentPHP\Guard\Intent\Drift\Detectors\MassAssignmentDriftDetector;
+use IntentPHP\Guard\Intent\Drift\DriftEngine;
 use IntentPHP\Guard\Intent\IntentContext;
 use IntentPHP\Guard\Intent\IntentEnricher;
+use IntentPHP\Guard\Laravel\ProjectContextFactory;
 use IntentPHP\Guard\Laravel\ProjectMap;
 use IntentPHP\Guard\Report\ConsoleReporter;
 use IntentPHP\Guard\Report\GitHubReporter;
@@ -324,6 +329,21 @@ class GuardScanCommand extends Command
             if ($spec->data->models !== []) {
                 $checks[] = new IntentMassAssignmentCheck($modelsPath, $spec, $intentContext);
             }
+
+            // Drift engine — always registered when intent loaded
+            $modelFqcns = array_keys($spec->data->models);
+            $factoryResult = ProjectContextFactory::fromLaravel($router, $modelFqcns, $modelsPath);
+            $projectContext = $factoryResult['context'];
+
+            foreach ($factoryResult['warnings'] as $warning) {
+                $intentContext->addWarning($warning);
+            }
+
+            $driftEngine = new DriftEngine([
+                new AuthDriftDetector($authMiddlewares),
+                new MassAssignmentDriftDetector(),
+            ]);
+            $checks[] = new IntentDriftCheck($driftEngine, $spec, $projectContext);
         }
 
         $scanner = new Scanner($checks);

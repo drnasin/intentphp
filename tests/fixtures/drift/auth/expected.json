@@ -1,0 +1,58 @@
+[
+    {
+        "check": "intent-drift/auth",
+        "severity": "high",
+        "message": "Route [GET] /orders requires authentication per intent spec but has no auth middleware.",
+        "file": null,
+        "line": null,
+        "context": {
+            "rule_id": "require-auth-orders",
+            "matched_rule_ids": [
+                "require-auth-orders"
+            ],
+            "route_identifier": "name:orders.index|GET",
+            "uri": "/orders",
+            "route_name": "orders.index",
+            "methods": [
+                "GET"
+            ],
+            "middleware": [],
+            "require": {
+                "authenticated": true
+            },
+            "drift_type": "missing_auth_middleware"
+        },
+        "fix_hint": "Add auth middleware to this route or its group.",
+        "fingerprint": "f8d000d00dbdf0af92d75c4909b747015a7ae80e"
+    },
+    {
+        "check": "intent-drift/auth",
+        "severity": "high",
+        "message": "Route [GET|POST] /api/items requires guard 'api' per intent spec but middleware does not include 'auth:api'.",
+        "file": null,
+        "line": null,
+        "context": {
+            "rule_id": "api-guard-items",
+            "matched_rule_ids": [
+                "api-guard-items"
+            ],
+            "route_identifier": "uri:/api/items|GET,POST",
+            "uri": "/api/items",
+            "route_name": "",
+            "methods": [
+                "GET",
+                "POST"
+            ],
+            "middleware": [
+                "auth:sanctum"
+            ],
+            "require": {
+                "authenticated": true,
+                "guard": "api"
+            },
+            "drift_type": "missing_guard_middleware"
+        },
+        "fix_hint": "Add 'auth:api' middleware to this route.",
+        "fingerprint": "8cb33e04e1e34fe53b693983b03f4d9c1bc1ee99"
+    }
+]

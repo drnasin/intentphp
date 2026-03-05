@@ -26,6 +26,8 @@ class Fingerprint
             'mass-assignment' => self::modelIdentifier($finding),
             'intent-auth' => self::intentAuthIdentifier($finding),
             'intent-mass-assignment' => self::intentMassAssignmentIdentifier($finding),
+            'intent-drift/auth' => self::intentDriftAuthIdentifier($finding),
+            'intent-drift/mass-assignment' => self::intentDriftMassAssignmentIdentifier($finding),
             default => self::snippetIdentifier($finding),
         };
     }
@@ -70,6 +72,22 @@ class Fingerprint
         $pattern = $finding->context['pattern'] ?? '';
 
         return "intent:mass-assignment:{$fqcn}:{$pattern}";
+    }
+
+    private static function intentDriftAuthIdentifier(Finding $finding): string
+    {
+        $ruleId = $finding->context['rule_id'] ?? '';
+        $routeIdentifier = $finding->context['route_identifier'] ?? '';
+
+        return "drift:auth:{$ruleId}:{$routeIdentifier}";
+    }
+
+    private static function intentDriftMassAssignmentIdentifier(Finding $finding): string
+    {
+        $fqcn = $finding->context['model_fqcn'] ?? '';
+        $driftType = $finding->context['drift_type'] ?? '';
+
+        return "drift:mass-assignment:{$fqcn}:{$driftType}";
     }
 
     private static function snippetIdentifier(Finding $finding): string

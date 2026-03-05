@@ -1,0 +1,31 @@
+[
+    {
+        "check": "intent-drift/mass-assignment",
+        "severity": "high",
+        "message": "Model 'App\\Models\\Comment' is declared as guarded in intent spec but has $guarded = [] (all attributes mass-assignable).",
+        "file": "/project/app/Models/Comment.php",
+        "line": null,
+        "context": {
+            "model_fqcn": "App\\Models\\Comment",
+            "drift_type": "guarded_empty",
+            "intent_mode": "guarded"
+        },
+        "fix_hint": "Populate the $guarded array with attributes that should not be mass-assignable, or switch to $fillable.",
+        "fingerprint": "b9ad5e767aa4807ca262f0911ed05a83916e58c9"
+    },
+    {
+        "check": "intent-drift/mass-assignment",
+        "severity": "high",
+        "message": "Model 'App\\Models\\Post' has forbidden attribute 'is_admin' in $fillable (per intent spec).",
+        "file": "/project/app/Models/Post.php",
+        "line": null,
+        "context": {
+            "model_fqcn": "App\\Models\\Post",
+            "drift_type": "forbidden_in_fillable:is_admin",
+            "intent_mode": "explicit_allowlist",
+            "forbidden_attribute": "is_admin"
+        },
+        "fix_hint": "Remove 'is_admin' from $fillable or update the intent spec.",
+        "fingerprint": "c7438b04e15113e877370433874e43527424cb74"
+    }
+]
