@@ -1,0 +1,36 @@
+{
+    "version": "1.0",
+    "entries": [
+        {
+            "link_type": "observed_only",
+            "spec_type": null,
+            "spec_id": null,
+            "target_type": "route",
+            "target_id": "name:dashboard|GET",
+            "target_detail": {
+                "uri": "/dashboard",
+                "route_name": "dashboard",
+                "methods": [
+                    "GET"
+                ],
+                "action": "App\\Http\\Controllers\\DashboardController@index"
+            }
+        },
+        {
+            "link_type": "observed_only",
+            "spec_type": null,
+            "spec_id": null,
+            "target_type": "route",
+            "target_id": "name:orders.index|GET",
+            "target_detail": {
+                "uri": "/orders",
+                "route_name": "orders.index",
+                "methods": [
+                    "GET"
+                ],
+                "action": "App\\Http\\Controllers\\OrderController@index"
+            }
+        }
+    ],
+    "checksum": "4fb27e8ef85264ac6253007c0734330b523b877d024b2c2e79be3a784f78ad3a"
+}

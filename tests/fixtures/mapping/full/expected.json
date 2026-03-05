@@ -1,0 +1,68 @@
+{
+    "version": "1.0",
+    "entries": [
+        {
+            "link_type": "spec_linked",
+            "spec_type": "model_spec",
+            "spec_id": "App\\Models\\Order",
+            "target_type": "model",
+            "target_id": "App\\Models\\Order",
+            "target_detail": {
+                "fqcn": "App\\Models\\Order",
+                "has_fillable": true,
+                "fillable_attrs": [
+                    "name",
+                    "total"
+                ],
+                "guarded_is_empty": false
+            }
+        },
+        {
+            "link_type": "observed_only",
+            "spec_type": null,
+            "spec_id": null,
+            "target_type": "model",
+            "target_id": "App\\Models\\User",
+            "target_detail": {
+                "fqcn": "App\\Models\\User",
+                "has_fillable": true,
+                "fillable_attrs": [
+                    "name",
+                    "email"
+                ],
+                "guarded_is_empty": false
+            }
+        },
+        {
+            "link_type": "observed_only",
+            "spec_type": null,
+            "spec_id": null,
+            "target_type": "route",
+            "target_id": "name:dashboard|GET",
+            "target_detail": {
+                "uri": "/dashboard",
+                "route_name": "dashboard",
+                "methods": [
+                    "GET"
+                ],
+                "action": "App\\Http\\Controllers\\DashboardController@index"
+            }
+        },
+        {
+            "link_type": "spec_linked",
+            "spec_type": "auth_rule",
+            "spec_id": "require-auth-orders",
+            "target_type": "route",
+            "target_id": "name:orders.index|GET",
+            "target_detail": {
+                "uri": "/orders",
+                "route_name": "orders.index",
+                "methods": [
+                    "GET"
+                ],
+                "action": "App\\Http\\Controllers\\OrderController@index"
+            }
+        }
+    ],
+    "checksum": "ba3809688ef39c56ed4a3aead3e87fd5cdfbec16e47e62fcdfb03c87fed37362"
+}
