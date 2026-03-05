@@ -1,3 +1,6 @@
+# ARCHIVED (do not edit)
+Superseded by /docs/ai/* canonical docs. Kept for historical reference only.
+
 # IntentPHP — Next Phases Roadmap (Post Guard v1.1)
 
 This section defines the next development phases after Guard v1.1.  

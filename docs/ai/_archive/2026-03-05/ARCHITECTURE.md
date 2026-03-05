@@ -1,3 +1,6 @@
+# ARCHIVED (do not edit)
+Superseded by /docs/ai/* canonical docs. Kept for historical reference only.
+
 # Architecture — IntentPHP Guard + Intent Platform
 
 This document explains how the Guard engine works today and how the Intent Platform layers build on top of it.

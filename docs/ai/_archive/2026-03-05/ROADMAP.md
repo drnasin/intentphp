@@ -1,3 +1,6 @@
+# ARCHIVED (do not edit)
+Superseded by /docs/ai/* canonical docs. Kept for historical reference only.
+
 # IntentPHP Roadmap
 
 IntentPHP is an intent-driven PHP/Laravel tooling platform.
