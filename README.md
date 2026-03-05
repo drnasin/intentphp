@@ -219,9 +219,15 @@ php artisan guard:intent validate
 
 # Show parsed spec summary
 php artisan guard:intent show
+
+# Build spec↔code mapping index (summary)
+php artisan guard:intent map
+
+# Dump deterministic mapping JSON
+php artisan guard:intent map --dump
 ```
 
-Manages the optional `intent/intent.yaml` spec file. `init` generates a starter file with example auth rules and model declarations. `validate` checks the spec for parse and schema errors. `show` prints a summary of the parsed spec. The intent spec is optional — Guard works without it.
+Manages the optional `intent/intent.yaml` spec file. `init` generates a starter file with example auth rules and model declarations. `validate` checks the spec for parse and schema errors. `show` prints a summary of the parsed spec. `map` builds a mapping index between spec rules and code targets (routes, models). If the intent spec is missing, `map` produces an observed-only index containing routes only (no models). The intent spec is optional — Guard works without it.
 
 ### `guard:doctor` — Environment diagnostics
 
@@ -304,6 +310,14 @@ Compares actual route middleware against requirements declared in the intent spe
 Checks model files against mass-assignment constraints declared in the intent spec. Detects models missing `$fillable` when declared as `explicit_allowlist`, forbidden attributes present in `$fillable`, and empty `$guarded` when declared as `guarded` mode. Only active when `intent/intent.yaml` is present and contains `data.models`.
 
 Intent checks are additive. A route can receive both a `route-authorization` finding and an `intent-auth` finding. They serve different purposes (config-driven vs spec-driven) and are independently suppressible via baseline or inline ignores.
+
+### 6. Intent Drift (`intent-drift/auth`, `intent-drift/mass-assignment`)
+
+Detects divergence between declared intent and observed project state. Auth drift detects missing auth middleware, missing guard middleware, and public routes with unnecessary auth middleware. Mass-assignment drift detects missing `$fillable`, forbidden attributes in `$fillable`, empty `$guarded`, and unparseable model patterns. Drift findings have stable fingerprints and integrate with baseline suppression. Only active when `intent/intent.yaml` is present.
+
+### 7. Spec↔Code Mapping (`guard:intent map`)
+
+Builds a versioned mapping index (v1.0) linking spec rules to code targets (routes and models). Each entry is classified as `spec_linked` (matched by an intent rule) or `observed_only` (no spec coverage). The mapping is used internally by the drift engine for context enrichment and can be dumped as deterministic JSON via `guard:intent map --dump`. If the intent spec is missing, the mapping contains routes only (no models).
 
 ## Intent Spec (optional)
 
