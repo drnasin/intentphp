@@ -4,29 +4,82 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Auth Middlewares
+    | Auth Middlewares (deprecated — use route_authorization instead)
     |--------------------------------------------------------------------------
     |
-    | Middleware names that count as "authorization protection" on a route.
-    | Routes missing all of these will be flagged.
+    | Legacy flat list. If route_authorization.auth_middleware_exact is set,
+    | this key is ignored. Kept for backward compatibility.
     |
     */
-    'auth_middlewares' => ['auth', 'auth:sanctum'],
+    'auth_middlewares' => [
+        'auth',
+        'auth:sanctum',
+        'Filament\\Http\\Middleware\\Authenticate',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Route Authorization (smart defaults)
+    |--------------------------------------------------------------------------
+    |
+    | Structured configuration for the route-authorization check.
+    | Preferred over the legacy 'auth_middlewares' key above.
+    |
+    */
+    'route_authorization' => [
+
+        // Exact middleware strings that count as "protected"
+        'auth_middleware_exact' => [
+            'auth',
+            'auth:sanctum',
+            'Filament\\Http\\Middleware\\Authenticate',
+        ],
+
+        // Alias prefixes — 'auth' matches 'auth:api', 'auth:web', etc.
+        'auth_middleware_prefixes' => ['auth'],
+
+        // FQCN suffix patterns (opt-in, default empty to avoid false negatives).
+        // Example: ['\\Http\\Middleware\\Authenticate'] would match any
+        // middleware FQCN ending with that string.
+        'auth_middleware_suffixes' => [],
+
+        // Guest auth routes skipped by default (framework standard routes).
+        // Override with an empty array to disable.
+        'skip_guest_routes' => [
+            'login',
+            'register',
+            'forgot-password',
+            'reset-password/*',
+            'two-factor-challenge',
+            'email/verify',
+            'email/verify/*',
+            'confirm-password',
+        ],
+
+        // Infrastructure routes skipped by default.
+        // Override with an empty array to disable.
+        'skip_infra_routes' => [
+            'up',
+            'health',
+            'sanctum/csrf-cookie',
+            'livewire/*',
+            '_ignition/*',
+            '_debugbar/*',
+            '_boost/*',
+        ],
+    ],
 
     /*
     |--------------------------------------------------------------------------
     | Public Routes
     |--------------------------------------------------------------------------
     |
-    | URI patterns that are intentionally public. These will be skipped
-    | during the route authorization check.
+    | User-declared URI patterns that are intentionally public.
+    | These are checked AFTER the built-in skip lists above.
+    | Add your business-specific public routes here.
     |
     */
-    'public_routes' => [
-        'up',
-        'health',
-        'sanctum/csrf-cookie',
-    ],
+    'public_routes' => [],
 
     /*
     |--------------------------------------------------------------------------

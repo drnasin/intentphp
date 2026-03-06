@@ -10,6 +10,7 @@ use IntentPHP\Guard\AI\AiClientInterface;
 use IntentPHP\Guard\AI\FixSuggestionGenerator;
 use IntentPHP\Guard\AI\PromptBuilder;
 use IntentPHP\Guard\Cache\ScanCache;
+use IntentPHP\Guard\Checks\AuthMiddlewareClassifier;
 use IntentPHP\Guard\Checks\DangerousQueryInputCheck;
 use IntentPHP\Guard\Checks\Intent\IntentDriftCheck;
 use IntentPHP\Guard\Checks\IntentAuthCheck;
@@ -304,17 +305,22 @@ class GuardScanCommand extends Command
         /** @var array<string, mixed> $config */
         $config = config('guard', []);
 
-        $authMiddlewares = $config['auth_middlewares'] ?? ['auth', 'auth:sanctum'];
+        $classifier = AuthMiddlewareClassifier::fromConfig($config);
         $publicRoutes = $config['public_routes'] ?? [];
+
+        $ra = $config['route_authorization'] ?? [];
+        $skipGuestRoutes = $ra['skip_guest_routes'] ?? RouteAuthorizationCheck::DEFAULT_SKIP_GUEST;
+        $skipInfraRoutes = $ra['skip_infra_routes'] ?? RouteAuthorizationCheck::DEFAULT_SKIP_INFRA;
+
         $controllersPath = app_path('Http/Controllers');
         $modelsPath = app_path('Models');
 
         $routeScanMode = GitHelper::determineRouteScanMode($changedFiles);
 
-        $detector = new RouteProtectionDetector($authMiddlewares);
+        $detector = new RouteProtectionDetector($classifier);
 
         $checks = [
-            new RouteAuthorizationCheck($router, $authMiddlewares, $publicRoutes, $detector),
+            new RouteAuthorizationCheck($router, [], $publicRoutes, $detector, $skipGuestRoutes, $skipInfraRoutes),
             new DangerousQueryInputCheck($controllersPath, $changedFiles),
             new MassAssignmentCheck($modelsPath, $controllersPath, $changedFiles),
         ];
@@ -340,7 +346,7 @@ class GuardScanCommand extends Command
             }
 
             $driftEngine = new DriftEngine([
-                new AuthDriftDetector($authMiddlewares),
+                new AuthDriftDetector((array) ($config['auth_middlewares'] ?? ['auth', 'auth:sanctum'])),
                 new MassAssignmentDriftDetector(),
             ]);
             $checks[] = new IntentDriftCheck($driftEngine, $spec, $projectContext);

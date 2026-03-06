@@ -1,0 +1,78 @@
+{
+    "version": "1.0",
+    "suggestions": [
+        {
+            "id": "code_to_spec:add_auth_rule:name:dashboard|GET",
+            "direction": "code_to_spec",
+            "action_type": "add_auth_rule",
+            "target_id": "name:dashboard|GET",
+            "mapping_ids": [
+                "route|name:dashboard|GET|observed_only||"
+            ],
+            "confidence": "medium",
+            "rationale": "Route [GET] /dashboard has no matching auth rule in intent spec.",
+            "patch": {
+                "action_type": "add_auth_rule",
+                "spec_section": "auth.rules",
+                "proposed_rule": {
+                    "id": "auto-name-dashboard-get",
+                    "match": {
+                        "routes": {
+                            "prefix": "/dashboard"
+                        }
+                    },
+                    "require": {
+                        "authenticated": true
+                    }
+                },
+                "instructions": "Add this rule to auth.rules in intent/intent.yaml."
+            },
+            "context": {
+                "uri": "/dashboard",
+                "methods": [
+                    "GET"
+                ],
+                "middleware": []
+            }
+        },
+        {
+            "id": "code_to_spec:add_auth_rule:uri:/api/status|GET",
+            "direction": "code_to_spec",
+            "action_type": "add_auth_rule",
+            "target_id": "uri:/api/status|GET",
+            "mapping_ids": [
+                "route|uri:/api/status|GET|observed_only||"
+            ],
+            "confidence": "medium",
+            "rationale": "Route [GET] /api/status has no matching auth rule in intent spec.",
+            "patch": {
+                "action_type": "add_auth_rule",
+                "spec_section": "auth.rules",
+                "proposed_rule": {
+                    "id": "auto-uri-api-status-get",
+                    "match": {
+                        "routes": {
+                            "prefix": "/api/status"
+                        }
+                    },
+                    "require": {
+                        "authenticated": true
+                    }
+                },
+                "instructions": "Add this rule to auth.rules in intent/intent.yaml."
+            },
+            "context": {
+                "uri": "/api/status",
+                "methods": [
+                    "GET"
+                ],
+                "middleware": []
+            }
+        }
+    ],
+    "summary": {
+        "total": 2,
+        "code_to_spec": 2,
+        "spec_to_code": 0
+    }
+}

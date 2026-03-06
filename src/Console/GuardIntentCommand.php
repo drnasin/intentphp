@@ -6,20 +6,29 @@ namespace IntentPHP\Guard\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
+use IntentPHP\Guard\Intent\Drift\Detectors\AuthDriftDetector;
+use IntentPHP\Guard\Intent\Drift\DriftEngine;
 use IntentPHP\Guard\Intent\IntentScaffold;
 use IntentPHP\Guard\Intent\Mapping\MappingBuilder;
+use IntentPHP\Guard\Intent\Mapping\MappingResolver;
 use IntentPHP\Guard\Intent\SpecLoader;
 use IntentPHP\Guard\Intent\SpecValidator;
+use IntentPHP\Guard\Intent\Sync\Providers\CodeToSpecProvider;
+use IntentPHP\Guard\Intent\Sync\Providers\SpecToCodeProvider;
+use IntentPHP\Guard\Intent\Sync\Renderers\JsonRenderer;
+use IntentPHP\Guard\Intent\Sync\Renderers\TextRenderer;
+use IntentPHP\Guard\Intent\Sync\SuggestionEngine;
 use IntentPHP\Guard\Laravel\ProjectContextFactory;
 use Symfony\Component\Yaml\Yaml;
 
 class GuardIntentCommand extends Command
 {
     protected $signature = 'guard:intent
-        {action : Action to perform (validate, init, show, map)}
+        {action : Action to perform (validate, init, show, map, sync)}
         {--path= : Path to intent directory (default: base_path("intent"))}
         {--force : Overwrite existing files when running init}
-        {--dump : Output deterministic JSON (used with map action)}';
+        {--dump : Output deterministic JSON (used with map action)}
+        {--json : Output deterministic JSON (used with sync action)}';
 
     protected $description = 'Manage the IntentPHP security spec.';
 
@@ -32,6 +41,7 @@ class GuardIntentCommand extends Command
             'init' => $this->runInit(),
             'show' => $this->runShow(),
             'map' => $this->runMap(),
+            'sync' => $this->runSync(),
             default => $this->invalidAction($action),
         };
     }
@@ -190,10 +200,75 @@ class GuardIntentCommand extends Command
         return self::SUCCESS;
     }
 
+    private function runSync(): int
+    {
+        /** @var Router $router */
+        $router = $this->laravel->make(Router::class);
+
+        $rootPath = $this->resolveRootPath();
+        $spec = null;
+        $modelFqcns = [];
+
+        if (file_exists($rootPath)) {
+            $loader = new SpecLoader();
+
+            try {
+                $result = $loader->load($rootPath);
+                $spec = $result['spec'];
+                $modelFqcns = array_keys($spec->data->models);
+            } catch (\RuntimeException $e) {
+                $this->warn('Intent spec could not be loaded: ' . $e->getMessage());
+            }
+        } else {
+            $this->line('No intent spec found. Only code-to-spec suggestions will be generated.');
+        }
+
+        $modelsPath = app_path('Models');
+        $factoryResult = ProjectContextFactory::fromLaravel($router, $modelFqcns, $modelsPath);
+        $context = $factoryResult['context'];
+
+        $builder = new MappingBuilder();
+        $index = $builder->build($spec, $context);
+        $resolver = new MappingResolver($index);
+
+        // Run drift engine only when spec is available
+        $driftItems = [];
+
+        if ($spec !== null) {
+            $driftEngine = new DriftEngine(
+                [new AuthDriftDetector()],
+                $resolver,
+            );
+            $driftItems = $driftEngine->detect($spec, $context);
+        }
+
+        // Build providers
+        $providers = [
+            new CodeToSpecProvider($resolver),
+        ];
+
+        if ($driftItems !== []) {
+            $providers[] = new SpecToCodeProvider($driftItems);
+        }
+
+        $engine = new SuggestionEngine($providers);
+        $suggestions = $engine->suggest();
+
+        if ($this->option('json')) {
+            $renderer = new JsonRenderer();
+            $this->line($renderer->render($suggestions));
+        } else {
+            $renderer = new TextRenderer();
+            $this->line($renderer->render($suggestions));
+        }
+
+        return self::SUCCESS;
+    }
+
     private function invalidAction(string $action): int
     {
         $this->error("Unknown action: {$action}");
-        $this->line('Valid actions: validate, init, show, map');
+        $this->line('Valid actions: validate, init, show, map, sync');
 
         return self::FAILURE;
     }

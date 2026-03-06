@@ -1,0 +1,106 @@
+{
+    "version": "1.0",
+    "suggestions": [
+        {
+            "id": "code_to_spec:add_auth_rule:name:dashboard|GET",
+            "direction": "code_to_spec",
+            "action_type": "add_auth_rule",
+            "target_id": "name:dashboard|GET",
+            "mapping_ids": [
+                "route|name:dashboard|GET|observed_only||"
+            ],
+            "confidence": "medium",
+            "rationale": "Route [GET] /dashboard has no matching auth rule in intent spec.",
+            "patch": {
+                "action_type": "add_auth_rule",
+                "spec_section": "auth.rules",
+                "proposed_rule": {
+                    "id": "auto-name-dashboard-get",
+                    "match": {
+                        "routes": {
+                            "prefix": "/dashboard"
+                        }
+                    },
+                    "require": {
+                        "authenticated": true
+                    }
+                },
+                "instructions": "Add this rule to auth.rules in intent/intent.yaml."
+            },
+            "context": {
+                "uri": "/dashboard",
+                "methods": [
+                    "GET"
+                ],
+                "middleware": []
+            }
+        },
+        {
+            "id": "code_to_spec:add_auth_rule:uri:/admin|GET,POST",
+            "direction": "code_to_spec",
+            "action_type": "add_auth_rule",
+            "target_id": "uri:/admin|GET,POST",
+            "mapping_ids": [
+                "route|uri:/admin|GET,POST|observed_only||"
+            ],
+            "confidence": "medium",
+            "rationale": "Route [GET,POST] /admin has no matching auth rule in intent spec.",
+            "patch": {
+                "action_type": "add_auth_rule",
+                "spec_section": "auth.rules",
+                "proposed_rule": {
+                    "id": "auto-uri-admin-get-post",
+                    "match": {
+                        "routes": {
+                            "prefix": "/admin"
+                        }
+                    },
+                    "require": {
+                        "authenticated": true
+                    }
+                },
+                "instructions": "Add this rule to auth.rules in intent/intent.yaml."
+            },
+            "context": {
+                "uri": "/admin",
+                "methods": [
+                    "GET",
+                    "POST"
+                ],
+                "middleware": []
+            }
+        },
+        {
+            "id": "spec_to_code:add_middleware:name:orders.index|GET",
+            "direction": "spec_to_code",
+            "action_type": "add_middleware",
+            "target_id": "name:orders.index|GET",
+            "mapping_ids": [
+                "route|name:orders.index|GET|spec_linked|auth_rule|require-auth-orders"
+            ],
+            "confidence": "high",
+            "rationale": "Route [GET] /orders requires authentication per intent spec but has no auth middleware.",
+            "patch": {
+                "action_type": "add_middleware",
+                "middleware": [
+                    "auth"
+                ],
+                "target_route_identifier": "name:orders.index|GET",
+                "instructions": "Add [auth] middleware to route group or route definition for /orders."
+            },
+            "context": {
+                "uri": "/orders",
+                "methods": [
+                    "GET"
+                ],
+                "middleware": [],
+                "drift_type": "missing_auth_middleware"
+            }
+        }
+    ],
+    "summary": {
+        "total": 3,
+        "code_to_spec": 2,
+        "spec_to_code": 1
+    }
+}

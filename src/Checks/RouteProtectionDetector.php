@@ -8,15 +8,20 @@ use Illuminate\Routing\Route;
 
 final readonly class RouteProtectionDetector
 {
-    /** @var string[] */
-    private array $authMiddlewares;
+    private AuthMiddlewareClassifier $classifier;
 
     /**
-     * @param string[] $authMiddlewares
+     * @param string[]|AuthMiddlewareClassifier $authMiddlewares Flat list (legacy) or classifier instance
      */
-    public function __construct(array $authMiddlewares = ['auth', 'auth:sanctum'])
+    public function __construct(array|AuthMiddlewareClassifier $authMiddlewares = [])
     {
-        $this->authMiddlewares = $authMiddlewares;
+        if ($authMiddlewares instanceof AuthMiddlewareClassifier) {
+            $this->classifier = $authMiddlewares;
+        } elseif ($authMiddlewares === []) {
+            $this->classifier = AuthMiddlewareClassifier::defaults();
+        } else {
+            $this->classifier = AuthMiddlewareClassifier::fromLegacyList($authMiddlewares);
+        }
     }
 
     /**
@@ -37,15 +42,7 @@ final readonly class RouteProtectionDetector
      */
     public function hasAuthMiddleware(array $middlewares): bool
     {
-        foreach ($middlewares as $middleware) {
-            foreach ($this->authMiddlewares as $authMiddleware) {
-                if ($middleware === $authMiddleware || str_starts_with($middleware, $authMiddleware . ':')) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return $this->classifier->hasAuth($middlewares);
     }
 
     /**
@@ -64,5 +61,10 @@ final readonly class RouteProtectionDetector
         }
 
         return false;
+    }
+
+    public function getClassifier(): AuthMiddlewareClassifier
+    {
+        return $this->classifier;
     }
 }

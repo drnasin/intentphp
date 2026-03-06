@@ -13,19 +13,52 @@ class RouteAuthorizationCheck implements CheckInterface
     /** @var string[] */
     private readonly array $publicRoutes;
 
+    /** @var string[] */
+    private readonly array $skipGuestRoutes;
+
+    /** @var string[] */
+    private readonly array $skipInfraRoutes;
+
     private readonly RouteProtectionDetector $detector;
 
+    public const DEFAULT_SKIP_GUEST = [
+        'login',
+        'register',
+        'forgot-password',
+        'reset-password/*',
+        'two-factor-challenge',
+        'email/verify',
+        'email/verify/*',
+        'confirm-password',
+    ];
+
+    public const DEFAULT_SKIP_INFRA = [
+        'up',
+        'health',
+        'sanctum/csrf-cookie',
+        'livewire/*',
+        '_ignition/*',
+        '_debugbar/*',
+        '_boost/*',
+    ];
+
     /**
-     * @param string[] $authMiddlewares
-     * @param string[] $publicRoutes
+     * @param string[] $authMiddlewares Legacy flat list (ignored if $detector is provided)
+     * @param string[] $publicRoutes    User-declared public routes
+     * @param string[] $skipGuestRoutes Built-in guest auth route skip patterns
+     * @param string[] $skipInfraRoutes Built-in infrastructure route skip patterns
      */
     public function __construct(
         private readonly Router $router,
-        array $authMiddlewares = ['auth', 'auth:sanctum'],
+        array $authMiddlewares = [],
         array $publicRoutes = [],
         ?RouteProtectionDetector $detector = null,
+        array $skipGuestRoutes = self::DEFAULT_SKIP_GUEST,
+        array $skipInfraRoutes = self::DEFAULT_SKIP_INFRA,
     ) {
         $this->publicRoutes = $publicRoutes;
+        $this->skipGuestRoutes = $skipGuestRoutes;
+        $this->skipInfraRoutes = $skipInfraRoutes;
         $this->detector = $detector ?? new RouteProtectionDetector($authMiddlewares);
     }
 
@@ -42,6 +75,10 @@ class RouteAuthorizationCheck implements CheckInterface
         foreach ($this->router->getRoutes() as $route) {
             /** @var Route $route */
             $uri = $route->uri();
+
+            if ($this->isSkippedRoute($uri)) {
+                continue;
+            }
 
             if ($this->isPublicRoute($uri)) {
                 continue;
@@ -89,20 +126,54 @@ class RouteAuthorizationCheck implements CheckInterface
         return $findings;
     }
 
+    /**
+     * Check built-in skip lists (guest auth + infrastructure routes).
+     */
+    private function isSkippedRoute(string $uri): bool
+    {
+        $uri = ltrim($uri, '/');
+
+        foreach ($this->skipGuestRoutes as $pattern) {
+            if ($this->matchesPattern($uri, $pattern)) {
+                return true;
+            }
+        }
+
+        foreach ($this->skipInfraRoutes as $pattern) {
+            if ($this->matchesPattern($uri, $pattern)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check user-declared public routes.
+     */
     private function isPublicRoute(string $uri): bool
     {
         $uri = ltrim($uri, '/');
 
         foreach ($this->publicRoutes as $pattern) {
-            $pattern = ltrim($pattern, '/');
-
-            if ($uri === $pattern) {
+            if ($this->matchesPattern($uri, $pattern)) {
                 return true;
             }
+        }
 
-            if (str_contains($pattern, '*') && fnmatch($pattern, $uri)) {
-                return true;
-            }
+        return false;
+    }
+
+    private function matchesPattern(string $uri, string $pattern): bool
+    {
+        $pattern = ltrim($pattern, '/');
+
+        if ($uri === $pattern) {
+            return true;
+        }
+
+        if (str_contains($pattern, '*') && fnmatch($pattern, $uri)) {
+            return true;
         }
 
         return false;
