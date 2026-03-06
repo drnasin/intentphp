@@ -22,7 +22,7 @@ Hard rules (apply to all milestones):
 
 ---
 
-## P10 — Drift Engine (Spec ↔ Code)
+## P10 — Drift Engine (Spec ↔ Code) ✅
 
 ### Goal
 Detect divergence between declared Intent Spec and observed project reality, producing drift findings with deterministic fingerprints.
@@ -55,10 +55,10 @@ Detect divergence between declared Intent Spec and observed project reality, pro
 - ✅ Drift categories documented and mapped to spec sections
 
 ### Acceptance checklist
-- [ ] Two drift scenarios implemented end-to-end (at least auth + mass-assignment)
-- [ ] Output ordering is stable (sorted)
-- [ ] Exit code behavior defined for drift severities
-- [ ] Baseline suppression works for drift findings (fingerprints stable)
+- [x] Two drift scenarios implemented end-to-end (at least auth + mass-assignment)
+- [x] Output ordering is stable (sorted)
+- [x] Exit code behavior defined for drift severities
+- [x] Baseline suppression works for drift findings (fingerprints stable)
 
 ### Suggested file layout
 - `src/Intent/Drift/DriftEngine.php`
@@ -170,7 +170,7 @@ Generate deterministic scaffolding for intent adoption (starter intent files/sec
 
 ---
 
-## P13 — Spec ↔ Code Mapping Layer
+## P13 — Spec ↔ Code Mapping Layer ✅
 
 ### Goal
 Create a stable mapping index between spec rules/sections and code symbols (routes, controllers, models, policies). This becomes the backbone for drift, generator, and sync suggestions.
@@ -199,9 +199,9 @@ Create a stable mapping index between spec rules/sections and code symbols (rout
 - ✅ Golden test ensures mapping JSON is deterministic
 
 ### Acceptance checklist
-- [ ] Mapping includes at minimum: routes + models (and their identifiers)
-- [ ] `--dump` output is stable and sorted
-- [ ] Same project → identical mapping hash across runs
+- [x] Mapping includes at minimum: routes + models (and their identifiers)
+- [x] `--dump` output is stable and sorted
+- [x] Same project → identical mapping hash across runs
 
 ### Suggested file layout
 - `src/Intent/Mapping/MappingIndex.php`
@@ -214,7 +214,7 @@ Create a stable mapping index between spec rules/sections and code symbols (rout
 
 ---
 
-## P14 — Sync Suggestions Engine (Suggestion-only)
+## P14 — Sync Suggestions Engine (Suggestion-only) ✅
 
 ### Goal
 Based on drift + mapping, propose safe sync actions (Spec→Code and Code→Spec) as preview-only diffs/suggestions. Deterministic ordering, optional machine-readable JSON.
@@ -254,10 +254,10 @@ Based on drift + mapping, propose safe sync actions (Spec→Code and Code→Spec
 - ✅ Golden tests prove stable output and ordering
 
 ### Acceptance checklist
-- [ ] Suggestions reference stable mapping index IDs
-- [ ] JSON output stable for CI consumption
-- [ ] Two suggestion types implemented and tested
-- [ ] No baseline/incremental behavior changes
+- [x] Suggestions reference stable mapping index IDs
+- [x] JSON output stable for CI consumption
+- [x] Two suggestion types implemented and tested (CodeToSpec + SpecToCode)
+- [x] No baseline/incremental behavior changes
 
 ### Suggested file layout
 - `src/Intent/Sync/Suggestion.php`
