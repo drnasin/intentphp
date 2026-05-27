@@ -118,6 +118,69 @@ class FingerprintTest extends TestCase
         $this->assertSame($a->fingerprint(), $b->fingerprint());
     }
 
+    public function test_route_authorization_fingerprint_is_method_order_stable(): void
+    {
+        // Same route, methods declared in different order + HEAD present in one.
+        $a = Finding::high(
+            check: 'route-authorization',
+            message: 'No auth.',
+            context: ['methods' => ['GET', 'HEAD'], 'uri' => '/orders', 'action' => 'OrderController@index'],
+        );
+
+        $b = Finding::high(
+            check: 'route-authorization',
+            message: 'No auth.',
+            context: ['methods' => ['GET'], 'uri' => '/orders', 'action' => 'OrderController@index'],
+        );
+
+        $this->assertSame($a->fingerprint(), $b->fingerprint());
+    }
+
+    public function test_route_authorization_fingerprint_ignores_method_registration_order(): void
+    {
+        $a = Finding::high(
+            check: 'route-authorization',
+            message: 'No auth.',
+            context: ['methods' => ['POST', 'GET'], 'uri' => '/orders', 'action' => 'OrderController@store'],
+        );
+
+        $b = Finding::high(
+            check: 'route-authorization',
+            message: 'No auth.',
+            context: ['methods' => ['GET', 'POST'], 'uri' => '/orders', 'action' => 'OrderController@store'],
+        );
+
+        $this->assertSame($a->fingerprint(), $b->fingerprint());
+    }
+
+    public function test_path_normalization_prefers_last_laravel_segment(): void
+    {
+        // A machine-specific prefix that itself contains "app/" must not leak.
+        $this->assertSame(
+            'app/Models/User.php',
+            Fingerprint::normalizePath('/home/app/project/app/Models/User.php'),
+        );
+    }
+
+    public function test_path_normalization_does_not_match_midword_segment(): void
+    {
+        // "myapp/" must NOT be mistaken for an "app/" segment. With no real
+        // app/|tests/|routes/ segment present, it falls back to the basename.
+        $this->assertSame(
+            'Controller.php',
+            Fingerprint::normalizePath('/srv/myapp/Http/Controller.php'),
+        );
+    }
+
+    public function test_path_normalization_picks_real_segment_after_midword_prefix(): void
+    {
+        // A "myapp/" prefix must not shadow the real "app/" segment that follows.
+        $this->assertSame(
+            'app/Models/User.php',
+            Fingerprint::normalizePath('/var/www/myapp/app/Models/User.php'),
+        );
+    }
+
     public function test_intent_auth_fingerprint_with_sorted_methods(): void
     {
         $a = Finding::high(

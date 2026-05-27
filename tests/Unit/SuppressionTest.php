@@ -78,6 +78,32 @@ class SuppressionTest extends TestCase
         @unlink($path);
     }
 
+    public function test_baseline_save_is_fingerprint_sorted_regardless_of_input_order(): void
+    {
+        $a = Finding::high(check: 'test-a', message: 'msg a', file: 'app/Foo.php', line: 1);
+        $b = Finding::high(check: 'test-b', message: 'msg b', file: 'app/Bar.php', line: 2);
+        $c = Finding::high(check: 'test-c', message: 'msg c', file: 'app/Baz.php', line: 3);
+
+        $manager = new BaselineManager();
+
+        $path1 = sys_get_temp_dir() . '/guard_test_baseline_' . uniqid() . '.json';
+        $path2 = sys_get_temp_dir() . '/guard_test_baseline_' . uniqid() . '.json';
+
+        $manager->save([$a, $b, $c], $path1);
+        $manager->save([$c, $a, $b], $path2);
+
+        // Byte-identical output regardless of emission order.
+        $this->assertSame(file_get_contents($path1), file_get_contents($path2));
+
+        // And the order is the sorted fingerprint order.
+        $expected = [$a->fingerprint(), $b->fingerprint(), $c->fingerprint()];
+        sort($expected);
+        $this->assertSame($expected, $manager->load($path1));
+
+        @unlink($path1);
+        @unlink($path2);
+    }
+
     public function test_baseline_load_returns_empty_for_missing_file(): void
     {
         $manager = new BaselineManager();

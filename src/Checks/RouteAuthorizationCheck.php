@@ -102,11 +102,19 @@ class RouteAuthorizationCheck implements CheckInterface
 
             $hasFormRequest = $this->methodHasFormRequest($action);
 
-            $methods = implode('|', $route->methods());
+            // Canonical methods (HEAD excluded, sorted) so the stored context
+            // and message are stable regardless of registration order — mirrors
+            // IntentAuthCheck and keeps the baseline byte-stable.
+            $methodList = array_values(array_filter(
+                $route->methods(),
+                static fn (string $m): bool => $m !== 'HEAD',
+            ));
+            sort($methodList);
+            $methodsLabel = implode('|', $methodList);
 
             $context = [
                     'uri' => $uri,
-                    'methods' => $route->methods(),
+                    'methods' => $methodList,
                     'action' => $action,
                     'middleware' => $middlewares,
                 ];
@@ -117,7 +125,7 @@ class RouteAuthorizationCheck implements CheckInterface
 
             $findings[] = Finding::high(
                 check: $this->name(),
-                message: "Route [{$methods}] {$uri} has no authorization protection.",
+                message: "Route [{$methodsLabel}] {$uri} has no authorization protection.",
                 context: $context,
                 fix_hint: "Add auth middleware to this route or its group, or call \$this->authorize() in the controller method.",
             );

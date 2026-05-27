@@ -34,11 +34,29 @@ class Fingerprint
 
     private static function routeIdentifier(Finding $finding): string
     {
-        $methods = implode(',', $finding->context['methods'] ?? []);
+        $methods = self::normalizeMethods($finding->context['methods'] ?? []);
         $uri = $finding->context['uri'] ?? '';
         $action = $finding->context['action'] ?? '';
 
         return "route:{$methods}:{$uri}:{$action}";
+    }
+
+    /**
+     * Canonical method string for fingerprints: HEAD excluded, sorted.
+     * Mirrors IntentAuthCheck / RouteIdentifier so the same route yields the
+     * same fingerprint regardless of HTTP-method registration order.
+     *
+     * @param string[] $methods
+     */
+    private static function normalizeMethods(array $methods): string
+    {
+        $methods = array_values(array_filter(
+            $methods,
+            static fn (string $m): bool => $m !== 'HEAD',
+        ));
+        sort($methods);
+
+        return implode(',', $methods);
     }
 
     private static function modelIdentifier(Finding $finding): string
@@ -105,16 +123,13 @@ class Fingerprint
 
         $path = str_replace('\\', '/', $path);
 
-        // Extract relative path from common Laravel base patterns
-        if (preg_match('#(app/.*)$#', $path, $m)) {
-            return $m[1];
-        }
-
-        if (preg_match('#(tests/.*)$#', $path, $m)) {
-            return $m[1];
-        }
-
-        if (preg_match('#(routes/.*)$#', $path, $m)) {
+        // Extract the relative path from a common Laravel base directory.
+        // (?:^|.*/) requires the segment to sit at the string start or right
+        // after a slash, so "myapp/" is never mistaken for an "app/" segment.
+        // The .*/ alternative is greedy, so the LAST app/|tests/|routes/
+        // segment wins — a machine-specific prefix (e.g. /home/app/project/app/)
+        // is stripped rather than leaked into the fingerprint.
+        if (preg_match('#(?:^|.*/)((?:app|tests|routes)/.*)$#', $path, $m)) {
             return $m[1];
         }
 

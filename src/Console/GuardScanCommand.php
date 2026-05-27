@@ -32,6 +32,7 @@ use IntentPHP\Guard\Report\JsonReporter;
 use IntentPHP\Guard\Report\MarkdownReporter;
 use IntentPHP\Guard\Scan\BaselineManager;
 use IntentPHP\Guard\Scan\Finding;
+use IntentPHP\Guard\Scan\Fingerprint;
 use IntentPHP\Guard\Scan\InlineIgnoreManager;
 use IntentPHP\Guard\Scan\Scanner;
 
@@ -216,6 +217,11 @@ class GuardScanCommand extends Command
                 return $enhancedByFp[$f->fingerprint()] ?? $f;
             }, $findings);
         }
+
+        // 5b. Stable ordering — sort findings by a deterministic key so that
+        // report output and baseline files don't churn across runs (route
+        // checks otherwise emit in router registration order).
+        $findings = $this->sortFindings($findings);
 
         // 6. Report
         $options = [
@@ -465,6 +471,29 @@ class GuardScanCommand extends Command
 
         // Invokable controller (class name with no @)
         return $action;
+    }
+
+    /**
+     * Sort findings by a deterministic total order: file, check, line, then
+     * fingerprint as a final tiebreaker. Guarantees identical output ordering
+     * for identical finding sets regardless of emission order.
+     *
+     * @param Finding[] $findings
+     * @return Finding[]
+     */
+    private function sortFindings(array $findings): array
+    {
+        // strcmp (not <=>) on the string keys: spaceship would compare two
+        // sha1 fingerprints of the "0e<digits>" form numerically and tie them,
+        // letting usort fall back to emission order — the churn this fixes.
+        usort($findings, static function (Finding $a, Finding $b): int {
+            return strcmp(Fingerprint::normalizePath($a->file), Fingerprint::normalizePath($b->file))
+                ?: strcmp($a->check, $b->check)
+                ?: (($a->line ?? 0) <=> ($b->line ?? 0))
+                ?: strcmp($a->fingerprint(), $b->fingerprint());
+        });
+
+        return $findings;
     }
 
     private function buildCache(): ?ScanCache

@@ -34,6 +34,13 @@ class BaselineManager
             ];
         }
 
+        // Sort by fingerprint so the baseline file is byte-stable regardless
+        // of the order findings were emitted in — avoids noisy diffs / merge
+        // conflicts on storage/guard/baseline.json. SORT_STRING is required:
+        // sha1 hex of the "0e<digits>" form would otherwise be compared
+        // numerically (all equal to 0) and misordered under SORT_REGULAR.
+        ksort($entries, SORT_STRING);
+
         $dir = dirname($path);
         if (! is_dir($dir)) {
             mkdir($dir, 0755, true);
