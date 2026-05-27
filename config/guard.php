@@ -38,10 +38,12 @@ return [
         // Alias prefixes — 'auth' matches 'auth:api', 'auth:web', etc.
         'auth_middleware_prefixes' => ['auth'],
 
-        // FQCN suffix patterns (opt-in, default empty to avoid false negatives).
-        // Example: ['\\Http\\Middleware\\Authenticate'] would match any
-        // middleware FQCN ending with that string.
-        'auth_middleware_suffixes' => [],
+        // FQCN suffix patterns. Any middleware class ending with one of these
+        // counts as auth protection. The leading backslash anchors on a
+        // namespace boundary, so '\Authenticate' matches
+        // 'App\Http\Middleware\Authenticate' but not 'FooAuthenticate'.
+        // Set to [] to disable suffix matching.
+        'auth_middleware_suffixes' => ['\\Authenticate'],
 
         // Guest auth routes skipped by default (framework standard routes).
         // Override with an empty array to disable.
