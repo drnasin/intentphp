@@ -7,7 +7,7 @@ namespace IntentPHP\Guard\Cache;
 class ScanCache
 {
     /** Bump this on each release to invalidate caches across upgrades. */
-    public const VERSION = '1.1.0';
+    public const VERSION = '1.2.0';
 
     private const VERSION_FILE = '.version';
 
@@ -43,9 +43,14 @@ class ScanCache
             return null;
         }
 
-        $data = @unserialize($contents);
+        // JSON, not unserialize(): the cache payload is plain data
+        // (associative arrays of strings/nulls), and unserialize() on a
+        // file-system value is a classic PHP object-injection gadget surface
+        // even when the threat requires local FS write. A decode failure or
+        // unexpected shape is treated as a cache miss so the caller rebuilds.
+        $data = json_decode($contents, true);
 
-        return $data !== false ? $data : null;
+        return is_array($data) ? $data : null;
     }
 
     /**
@@ -61,12 +66,21 @@ class ScanCache
             mkdir($this->cacheDir, 0755, true);
         }
 
+        $encoded = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        // If the payload can't be JSON-encoded (e.g. would-be NaN, resource,
+        // closure), skip caching for this key. Degrades to "no cache" — never
+        // worse than not having one — instead of falling back to serialize().
+        if ($encoded === false) {
+            return;
+        }
+
         file_put_contents(
             $this->cacheDir . DIRECTORY_SEPARATOR . self::VERSION_FILE,
             $version,
         );
 
-        file_put_contents($this->filePath($key), serialize($data));
+        file_put_contents($this->filePath($key), $encoded);
     }
 
     /**
