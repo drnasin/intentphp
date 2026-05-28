@@ -8,6 +8,28 @@ _No entries yet._
 
 ---
 
+## [2.1.0] — 2026-05-28
+
+Additive expansion of the supported runtime range. No code changes required; the package's existing Laravel API surface continues to work without modification on the new combinations. All 13 matrix combinations passed CI on first run.
+
+### Added
+
+- **Laravel 13** support. `illuminate/{support,console,routing}` constraints now include `^13.0`. `orchestra/testbench` dev dep bumped to include `^11.0` (testbench 11.x tracks Laravel 13).
+- **PHP 8.5** support in CI matrix.
+- CI matrix expanded from 8 jobs to 13:
+  - PHP 8.2 × Laravel {10, 11, 12}
+  - PHP 8.3 × Laravel {10, 11, 12, 13}
+  - PHP 8.4 × Laravel {11, 12, 13}
+  - PHP 8.5 × Laravel {11, 12, 13}
+  - Excluded combinations are upstream-incompatible (Laravel 10 maintenance tracks PHP 8.1–8.3; Laravel 13 requires PHP ^8.3).
+- `fail-fast: false` in the workflow matrix — every matrix failure surfaces in one run instead of cancelling after the first.
+
+### Behavior
+
+- No code changes. The package uses stable Laravel APIs (`Router`, `Console\Command`, `Eloquent\Model`, `ServiceProvider`) that haven't shifted across the supported majors.
+
+---
+
 ## [2.0.0] — 2026-05-28
 
 Major release. Two batches of work land together: the previously-unreleased Spec↔Code Mapping (Phase 13) + Sync Suggestions (Phase 14), and a 2026-05 sweep that closes most of an external security/correctness review. Read the upgrade notes before bumping.
