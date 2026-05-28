@@ -7,6 +7,7 @@ namespace IntentPHP\Guard\Console;
 use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
 use IntentPHP\Guard\AI\AiClientInterface;
+use IntentPHP\Guard\Analysis\AstParser;
 use IntentPHP\Guard\AI\FixSuggestionGenerator;
 use IntentPHP\Guard\AI\PromptBuilder;
 use IntentPHP\Guard\Cache\ScanCache;
@@ -123,6 +124,7 @@ class GuardScanCommand extends Command
         $scannerResult = $this->buildScanner($router, $changedFiles, $intentContext);
         $scanner = $scannerResult['scanner'];
         $routeScanMode = $scannerResult['route_scan_mode'];
+        $astParser = $scannerResult['ast_parser'];
 
         if (! $isQuiet && $routeScanMode !== 'full' && $changedFiles !== null) {
             $controllerCount = count(array_filter($changedFiles, function (string $f) {
@@ -133,6 +135,13 @@ class GuardScanCommand extends Command
         }
 
         $findings = $scanner->runAndFilter($severity);
+
+        // 1b. Surface files the AST checks could not parse as findings, instead
+        // of silently leaving them unanalyzed (a coverage gap). MEDIUM so it is
+        // visible without failing CI (exit code keys on active HIGH only).
+        foreach ($this->parseErrorFindings($astParser) as $parseError) {
+            $findings[] = $parseError;
+        }
 
         // Apply route findings filter when in filtered mode
         $routeChecks = ['route-authorization', 'intent-auth'];
@@ -304,7 +313,7 @@ class GuardScanCommand extends Command
 
     /**
      * @param string[]|null $changedFiles
-     * @return array{scanner: Scanner, route_scan_mode: string}
+     * @return array{scanner: Scanner, route_scan_mode: string, ast_parser: AstParser}
      */
     private function buildScanner(Router $router, ?array $changedFiles = null, ?IntentContext $intentContext = null): array
     {
@@ -325,10 +334,14 @@ class GuardScanCommand extends Command
 
         $detector = new RouteProtectionDetector($classifier);
 
+        // One parser shared by the AST checks: each controller file is parsed
+        // once, and parse errors are collected in a single place.
+        $astParser = new AstParser();
+
         $checks = [
             new RouteAuthorizationCheck($router, [], $publicRoutes, $detector, $skipGuestRoutes, $skipInfraRoutes),
-            new DangerousQueryInputCheck($controllersPath, $changedFiles),
-            new MassAssignmentCheck($modelsPath, $controllersPath, $changedFiles),
+            new DangerousQueryInputCheck($controllersPath, $changedFiles, $astParser),
+            new MassAssignmentCheck($modelsPath, $controllersPath, $changedFiles, $astParser),
         ];
 
         if ($intentContext !== null) {
@@ -360,7 +373,36 @@ class GuardScanCommand extends Command
 
         $scanner = new Scanner($checks);
 
-        return ['scanner' => $scanner, 'route_scan_mode' => $routeScanMode];
+        return ['scanner' => $scanner, 'route_scan_mode' => $routeScanMode, 'ast_parser' => $astParser];
+    }
+
+    /**
+     * Turn parser failures into visible findings so an unparseable controller
+     * is reported as a coverage gap rather than silently skipped.
+     *
+     * @return Finding[]
+     */
+    private function parseErrorFindings(AstParser $astParser): array
+    {
+        $findings = [];
+
+        foreach ($astParser->getErrors() as $path => $message) {
+            $relative = Fingerprint::normalizePath($path);
+
+            $findings[] = Finding::medium(
+                check: 'scan/parse-error',
+                message: "Could not parse {$relative} for security analysis — it was not scanned.",
+                file: $path,
+                line: null,
+                context: [
+                    'snippet' => $relative,
+                    'reason' => $message,
+                ],
+                fix_hint: 'Ensure the file is valid PHP that the installed parser supports; Guard cannot analyze files it cannot parse.',
+            );
+        }
+
+        return $findings;
     }
 
     /**
