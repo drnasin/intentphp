@@ -33,7 +33,22 @@ class MassAssignmentCheck implements CheckInterface
     }
 
     /**
-     * Find models that are unprotected: no $fillable, or $guarded = [].
+     * Find models that are genuinely mass-assignable.
+     *
+     * A model is unsafe only when attributes are actually open to mass
+     * assignment:
+     *   - $guarded = []                         → every attribute assignable
+     *   - $guarded = [...non-'*'...] + no $fillable
+     *                                           → every non-guarded attribute assignable
+     *
+     * A bare model (no $fillable AND no $guarded) inherits Eloquent's default
+     * $guarded = ['*'], so it is fully guarded and NOT mass-assignable — flagging
+     * it was a false positive. $guarded = ['*'] and any $fillable allowlist are
+     * likewise safe.
+     *
+     * Limitation: only the model's own file is inspected. Protection or opening
+     * ($guarded = []) inherited from a parent class/trait, or a global
+     * Model::unguard(), is not resolved — such a model reads as "bare" here.
      *
      * @return array<string, array{file: string, reason: string}>
      */
@@ -61,17 +76,20 @@ class MassAssignmentCheck implements CheckInterface
             }
 
             $hasFillable = (bool) preg_match('/\$fillable\s*=\s*\[/', $contents);
-            $hasEmptyGuarded = (bool) preg_match('/\$guarded\s*=\s*\[\s*\]/', $contents);
+            $hasGuarded = (bool) preg_match('/\$guarded\s*=/', $contents);
+            $guardedEmpty = (bool) preg_match('/\$guarded\s*=\s*\[\s*\]/', $contents);
+            // Matches $guarded = ['*'] / ["*"] (the explicit "guard everything" form).
+            $guardedAll = (bool) preg_match('/\$guarded\s*=\s*\[\s*([\'"])\*\1\s*\]/', $contents);
 
-            if ($hasEmptyGuarded) {
+            if ($guardedEmpty) {
                 $unsafe[$className] = [
                     'file' => $file->getRealPath(),
                     'reason' => '$guarded is set to an empty array — all attributes are mass assignable',
                 ];
-            } elseif (! $hasFillable) {
+            } elseif ($hasGuarded && ! $guardedAll && ! $hasFillable) {
                 $unsafe[$className] = [
                     'file' => $file->getRealPath(),
-                    'reason' => 'No $fillable property defined',
+                    'reason' => '$guarded is a partial allowlist with no $fillable — all non-guarded attributes are mass assignable',
                 ];
             }
         }

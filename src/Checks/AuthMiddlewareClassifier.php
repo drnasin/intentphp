@@ -45,7 +45,7 @@ final readonly class AuthMiddlewareClassifier
             return new self(
                 exact: (array) ($ra['auth_middleware_exact'] ?? self::defaultExact()),
                 prefixes: (array) ($ra['auth_middleware_prefixes'] ?? self::defaultPrefixes()),
-                suffixes: (array) ($ra['auth_middleware_suffixes'] ?? []),
+                suffixes: (array) ($ra['auth_middleware_suffixes'] ?? self::defaultSuffixes()),
             );
         }
 
@@ -86,7 +86,7 @@ final readonly class AuthMiddlewareClassifier
         return new self(
             exact: self::defaultExact(),
             prefixes: self::defaultPrefixes(),
-            suffixes: [],
+            suffixes: self::defaultSuffixes(),
         );
     }
 
@@ -102,9 +102,12 @@ final readonly class AuthMiddlewareClassifier
             }
         }
 
-        // Prefix match (alias:parameter convention)
+        // Prefix match (alias separator convention): 'auth' matches both
+        // 'auth:sanctum' (guard parameter) and 'auth.basic' (dotted alias).
         foreach ($this->prefixes as $prefix) {
-            if (str_starts_with($middleware, $prefix . ':')) {
+            if (str_starts_with($middleware, $prefix . ':')
+                || str_starts_with($middleware, $prefix . '.')
+            ) {
                 return true;
             }
         }
@@ -175,5 +178,18 @@ final readonly class AuthMiddlewareClassifier
     private static function defaultPrefixes(): array
     {
         return ['auth'];
+    }
+
+    /**
+     * Default FQCN suffix: any middleware class ending in "\Authenticate"
+     * (Laravel's own and most custom auth middleware) counts as auth. The
+     * leading backslash anchors on a namespace boundary, so "FooAuthenticate"
+     * is not matched.
+     *
+     * @return string[]
+     */
+    private static function defaultSuffixes(): array
+    {
+        return ['\\Authenticate'];
     }
 }

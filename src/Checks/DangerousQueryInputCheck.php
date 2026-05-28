@@ -25,7 +25,6 @@ class DangerousQueryInputCheck implements CheckInterface
         'havingRaw with request input' => '/->havingRaw\s*\(\s*\$request\s*->/',
         'DB::raw with request input' => '/DB::raw\s*\(\s*.*\$request\s*->/',
         'whereColumn with request input' => '/->whereColumn\s*\(\s*\$request\s*->/',
-        'orderBy with direct input variable' => '/->orderBy\s*\(\s*\$(?:sort|order|column|field|dir)/',
         'selectRaw with string concat' => '/->selectRaw\s*\(\s*[\'"].*\.\s*\$/',
         'whereRaw with string concat' => '/->whereRaw\s*\(\s*[\'"].*\.\s*\$/',
         'orderByRaw with string concat' => '/->orderByRaw\s*\(\s*[\'"].*\.\s*\$/',
@@ -36,6 +35,21 @@ class DangerousQueryInputCheck implements CheckInterface
         'selectRaw with request() helper' => '/->selectRaw\s*\(\s*request\s*\(\)\s*->/',
         'orderByRaw with request() helper' => '/->orderByRaw\s*\(\s*request\s*\(\)\s*->/',
         'DB::raw with request() helper' => '/DB::raw\s*\(\s*.*request\s*\(\)\s*->/',
+    ];
+
+    /**
+     * Lower-confidence heuristics: a query-builder call receiving a variable
+     * whose name suggests user-controlled ordering. The variable may well be
+     * validated/whitelisted, so these are MEDIUM (do not gate CI by default)
+     * and worded as "verify", not "dangerous".
+     *
+     * @var array<string, string>
+     */
+    private const MEDIUM_PATTERNS = [
+        // No word boundary on purpose: this also matches $sortBy, $orderColumn,
+        // $direction, $columns, etc. — the common sort-variable names. The only
+        // change vs the old rule is the severity (HIGH → MEDIUM), not the breadth.
+        'orderBy with a sort-like variable' => '/->orderBy\s*\(\s*\$(?:sort|order|column|field|dir)/',
     ];
 
     /**
@@ -62,8 +76,6 @@ class DangerousQueryInputCheck implements CheckInterface
             foreach ($lines as $lineNumber => $lineContent) {
                 foreach (self::PATTERNS as $label => $pattern) {
                     if (preg_match($pattern, $lineContent)) {
-                        $snippet = trim($lineContent);
-
                         $findings[] = Finding::high(
                             check: $this->name(),
                             message: "Dangerous query input detected: {$label}.",
@@ -71,9 +83,25 @@ class DangerousQueryInputCheck implements CheckInterface
                             line: $lineNumber + 1,
                             context: [
                                 'pattern' => $label,
-                                'snippet' => $snippet,
+                                'snippet' => trim($lineContent),
                             ],
                             fix_hint: "Never pass raw request input into query builder methods. Validate and whitelist allowed values before use.",
+                        );
+                    }
+                }
+
+                foreach (self::MEDIUM_PATTERNS as $label => $pattern) {
+                    if (preg_match($pattern, $lineContent)) {
+                        $findings[] = Finding::medium(
+                            check: $this->name(),
+                            message: "Possible dangerous query input (unverified variable): {$label}. Confirm the value is validated/whitelisted before it reaches the query.",
+                            file: $filePath,
+                            line: $lineNumber + 1,
+                            context: [
+                                'pattern' => $label,
+                                'snippet' => trim($lineContent),
+                            ],
+                            fix_hint: "If the column/direction comes from request input, map it through an allowlist (in_array/match) before use.",
                         );
                     }
                 }

@@ -47,6 +47,36 @@ class AuthMiddlewareClassifierTest extends TestCase
         $this->assertFalse($c->isAuth('authenticate'));
     }
 
+    public function test_prefix_match_with_dot_separator(): void
+    {
+        $c = AuthMiddlewareClassifier::defaults();
+
+        // Laravel's dotted aliases are auth protection too.
+        $this->assertTrue($c->isAuth('auth.basic'));
+        $this->assertTrue($c->isAuth('auth.session'));
+    }
+
+    public function test_dot_prefix_does_not_match_unrelated_middleware(): void
+    {
+        $c = AuthMiddlewareClassifier::defaults();
+
+        // 'authorize.x' must not be treated as the 'auth' alias.
+        $this->assertFalse($c->isAuth('authorize.something'));
+    }
+
+    public function test_defaults_recognize_authenticate_suffix(): void
+    {
+        $c = AuthMiddlewareClassifier::defaults();
+
+        // Custom auth middleware following Laravel's naming is recognized.
+        $this->assertTrue($c->isAuth('App\\Http\\Middleware\\Authenticate'));
+        $this->assertTrue($c->isAuth('Illuminate\\Auth\\Middleware\\Authenticate'));
+
+        // ...but a class merely ending in "Authenticate" (no namespace
+        // boundary) is not, so it can't mask an unprotected route.
+        $this->assertFalse($c->isAuth('App\\Http\\Middleware\\FooAuthenticate'));
+    }
+
     public function test_suffix_match(): void
     {
         $c = new AuthMiddlewareClassifier(
