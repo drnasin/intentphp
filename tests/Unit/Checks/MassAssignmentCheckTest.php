@@ -48,6 +48,17 @@ class MassAssignmentCheckTest extends TestCase
         return (new MassAssignmentCheck($this->modelsPath, $this->controllersPath))->run();
     }
 
+    /** @return Finding[] */
+    private function runWithMethod(string $methodSource): array
+    {
+        file_put_contents(
+            $this->controllersPath . '/TestController.php',
+            "<?php\nnamespace App\\Http\\Controllers;\nclass TestController\n{\n{$methodSource}\n}\n",
+        );
+
+        return (new MassAssignmentCheck($this->modelsPath, $this->controllersPath))->run();
+    }
+
     public function test_bare_model_is_not_flagged(): void
     {
         // No $fillable AND no $guarded → inherits Eloquent default $guarded=['*'] → safe.
@@ -178,6 +189,211 @@ class MassAssignmentCheckTest extends TestCase
 
         $this->assertCount(1, $findings);
         $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_taint_via_one_hop_assignment_is_flagged(): void
+    {
+        // C2: $d = $request->all(); ::create($d); — the indirection that the
+        // per-line regex (and even direct AST) missed.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$data = \$request->all();\n        OpenModel::create(\$data);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+        $this->assertStringContainsString('tainted variable $data', $findings[0]->message);
+    }
+
+    public function test_taint_via_validated_is_medium(): void
+    {
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$data = \$request->validated();\n        OpenModel::create(\$data);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('medium', $findings[0]->severity);
+    }
+
+    public function test_single_field_input_does_not_taint_for_mass_assignment(): void
+    {
+        // $d = $request->input('email') is a single field, not bulk → $d is not
+        // a mass-assignment payload, so passing it to ::create is not flagged.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$d = \$request->input('email');\n        OpenModel::create(\$d);"
+        );
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_form_request_param_alias_taints_indirection(): void
+    {
+        // Param typed *Request acts as a request alias within the function.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runWithMethod(<<<'PHP'
+            public function store(\App\Http\Requests\StoreUserRequest $req)
+            {
+                $data = $req->all();
+                OpenModel::create($data);
+            }
+        PHP);
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_taint_is_monotonic_across_reassignment(): void
+    {
+        // Conservative-by-design: once $d is tainted anywhere in the function,
+        // every read of $d in that function is treated as tainted. Reassignment
+        // to a safe value does NOT untaint. This is documented (and accepted)
+        // FP risk in exchange for not needing a sound flow-sensitive engine.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$d = \$request->all();\n"
+            . "        \$d = ['safe' => 1];\n"
+            . "        OpenModel::create(\$d);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_taint_does_not_leak_into_nested_closure(): void
+    {
+        // A nested closure has its own scope; $d defined inside it must not
+        // be tainted from the outer function's $request, and vice versa.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(<<<'PHP'
+        $cb = function ($request) {
+            $d = $request->all();
+        };
+        $outer = 'safe';
+        OpenModel::create($outer);
+        PHP);
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_foreach_over_request_does_not_taint_as_bulk(): void
+    {
+        // foreach element is a value derived from the request, not the bulk
+        // payload — so it's a raw-SQL interpolation taint source (covered in
+        // DangerousQueryInputCheckTest) but NOT a mass-assignment one.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(<<<'PHP'
+        foreach ($request->all() as $v) {
+            OpenModel::create($v);
+        }
+        PHP);
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_taint_through_null_coalesce_is_flagged(): void
+    {
+        // C2 wrapper: $d = $x ?? $request->input('d'); — the request branch poisons $d.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$d = \$fallback ?? \$request->input();\n        OpenModel::create(\$d);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_taint_through_ternary_is_flagged(): void
+    {
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$d = \$cond ? \$safe : \$request->all();\n        OpenModel::create(\$d);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_taint_through_match_arm_is_flagged(): void
+    {
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(<<<'PHP'
+        $d = match ($mode) {
+            'a' => ['safe' => 1],
+            default => $request->all(),
+        };
+        OpenModel::create($d);
+        PHP);
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_taint_through_cast_is_flagged(): void
+    {
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$d = (array) \$request->all();\n        OpenModel::create(\$d);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_chained_assignment_taints_both_lhs(): void
+    {
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$a = \$b = \$request->all();\n        OpenModel::create(\$a);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_variable_chain_via_intermediate_taints(): void
+    {
+        // $tmp = $request->all(); $d = $tmp;  →  $d should be tainted via the
+        // fixed-point iteration over the function body.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst(
+            "        \$tmp = \$request->all();\n        \$d = \$tmp;\n        OpenModel::create(\$d);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_domain_request_typed_param_is_not_an_alias(): void
+    {
+        // FQCN-gated: \App\Domain\MergeRequest is NOT a Laravel HTTP request,
+        // so $mergeRequest->all() must not be treated as request input. Without
+        // FQCN resolution the *Request suffix heuristic would FP here.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runWithMethod(<<<'PHP'
+            public function approve(\App\Domain\MergeRequest $mergeRequest)
+            {
+                $data = $mergeRequest->all();
+                OpenModel::create($data);
+            }
+        PHP);
+
+        $this->assertSame([], $findings);
     }
 
     public function test_protection_inherited_from_parent_is_not_resolved(): void

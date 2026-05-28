@@ -6,6 +6,9 @@ namespace IntentPHP\Guard\Analysis;
 
 use PhpParser\Error as PhpParserError;
 use PhpParser\Node;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitor\NameResolver;
+use PhpParser\NodeVisitor\ParentConnectingVisitor;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
 
@@ -46,6 +49,21 @@ final class AstParser
 
         try {
             $stmts = $this->parser->parse($code);
+
+            if ($stmts !== null) {
+                // NameResolver rewrites Name nodes to their fully-qualified
+                // form (resolving `use` statements and the current namespace).
+                // This lets the alias check distinguish a Laravel FormRequest
+                // (App\Http\Requests\StoreUserRequest) from a domain object
+                // that merely happens to be named *Request (App\Domain\Pull-
+                // Request). ParentConnectingVisitor lets checks walk up to a
+                // sink's enclosing function for per-function taint scope.
+                $traverser = new NodeTraverser();
+                $traverser->addVisitor(new NameResolver(null, ['preserveOriginalNames' => true]));
+                $traverser->addVisitor(new ParentConnectingVisitor());
+                $stmts = $traverser->traverse($stmts);
+            }
+
             unset($this->errors[$path]);
 
             return $this->cache[$path] = $stmts;

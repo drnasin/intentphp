@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace IntentPHP\Guard\Checks;
 
 use IntentPHP\Guard\Analysis\AstParser;
+use IntentPHP\Guard\Analysis\FunctionScope;
 use IntentPHP\Guard\Analysis\RequestExpr;
 use IntentPHP\Guard\Scan\Finding;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
+use PhpParser\Node\FunctionLike;
+use PhpParser\Node\Scalar\InterpolatedString;
 use PhpParser\NodeFinder;
 use Symfony\Component\Finder\Finder;
 
@@ -72,8 +75,11 @@ class DangerousQueryInputCheck implements CheckInterface
                     || $n instanceof Expr\StaticCall,
             );
 
+            $scopes = [];
+
             foreach ($calls as $call) {
-                $finding = $this->classify($call, $filePath, $lines);
+                $scope = $this->scopeFor($call, $scopes);
+                $finding = $this->classify($call, $filePath, $lines, $scope);
 
                 if ($finding !== null) {
                     $findings[] = $finding;
@@ -84,7 +90,7 @@ class DangerousQueryInputCheck implements CheckInterface
         return $findings;
     }
 
-    private function classify(Node $call, string $filePath, array $lines): ?Finding
+    private function classify(Node $call, string $filePath, array $lines, FunctionScope $scope): ?Finding
     {
         if (! $call->name instanceof Node\Identifier) {
             return null; // dynamic call name
@@ -96,8 +102,9 @@ class DangerousQueryInputCheck implements CheckInterface
 
         // DB::raw(...) / DB::statement(...) / DB::select(...) etc.
         if ($call instanceof Expr\StaticCall && $this->isDbFacade($call->class) && in_array($method, self::DB_SINKS, true)) {
-            if ($first !== null && RequestExpr::embedsRequest($first)) {
-                return $this->high($call, $filePath, $lines, "DB::{$method}", "DB::{$method}() built from request input");
+            if ($first !== null && RequestExpr::embedsRequest($first, $scope)) {
+                $trigger = $this->triggerSuffix($first, $scope);
+                return $this->high($call, $filePath, $lines, "DB::{$method}", "DB::{$method}() built from request input{$trigger}");
             }
 
             return null;
@@ -109,8 +116,9 @@ class DangerousQueryInputCheck implements CheckInterface
 
         // Raw builder methods: ->whereRaw("... $x ..."), ->orderByRaw('...'.$req), etc.
         if (in_array($method, self::RAW_SINKS, true)) {
-            if ($first !== null && RequestExpr::embedsRequest($first)) {
-                return $this->high($call, $filePath, $lines, $method, "{$method}() built from request input");
+            if ($first !== null && RequestExpr::embedsRequest($first, $scope)) {
+                $trigger = $this->triggerSuffix($first, $scope);
+                return $this->high($call, $filePath, $lines, $method, "{$method}() built from request input{$trigger}");
             }
 
             return null;
@@ -120,8 +128,9 @@ class DangerousQueryInputCheck implements CheckInterface
         // injection sink. A request value in a later argument is a parameterized
         // binding (->where('col', $request->x)) and is safe — do not flag it.
         if (in_array($method, self::INPUT_SINKS, true)) {
-            if ($first !== null && RequestExpr::embedsRequest($first)) {
-                return $this->high($call, $filePath, $lines, $method, "{$method}() with request input");
+            if ($first !== null && RequestExpr::embedsRequest($first, $scope)) {
+                $trigger = $this->triggerSuffix($first, $scope);
+                return $this->high($call, $filePath, $lines, $method, "{$method}() with request input{$trigger}");
             }
 
             // Lower-confidence name heuristic (the value may be validated):
@@ -131,6 +140,114 @@ class DangerousQueryInputCheck implements CheckInterface
             ) {
                 return $this->medium($call, $filePath, $lines);
             }
+        }
+
+        return null;
+    }
+
+    /**
+     * Suffix to add to the message when the danger came through a tainted
+     * variable (C2 indirection) rather than a direct request access. Recurses
+     * into interpolations and concatenations so e.g. "name $dir" attributes
+     * to $dir.
+     */
+    private function triggerSuffix(Node $arg, FunctionScope $scope): string
+    {
+        $name = $this->findTaintedVarName($arg, $scope);
+
+        return $name !== null ? " (via tainted variable \${$name})" : '';
+    }
+
+    private function findTaintedVarName(Node $node, FunctionScope $scope): ?string
+    {
+        if ($node instanceof Expr\Variable && is_string($node->name) && isset($scope->taintedValue[$node->name])) {
+            return $node->name;
+        }
+
+        if ($node instanceof InterpolatedString) {
+            foreach ($node->parts as $part) {
+                if (! $part instanceof Node\InterpolatedStringPart) {
+                    $found = $this->findTaintedVarName($part, $scope);
+                    if ($found !== null) {
+                        return $found;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        if ($node instanceof Expr\BinaryOp\Concat || $node instanceof Expr\BinaryOp\Coalesce) {
+            return $this->findTaintedVarName($node->left, $scope)
+                ?? $this->findTaintedVarName($node->right, $scope);
+        }
+
+        if ($node instanceof Expr\Ternary) {
+            if ($node->if !== null) {
+                $found = $this->findTaintedVarName($node->if, $scope);
+                if ($found !== null) {
+                    return $found;
+                }
+            }
+            return $this->findTaintedVarName($node->else, $scope);
+        }
+
+        if ($node instanceof Expr\Match_) {
+            foreach ($node->arms as $arm) {
+                $found = $this->findTaintedVarName($arm->body, $scope);
+                if ($found !== null) {
+                    return $found;
+                }
+            }
+
+            return null;
+        }
+
+        if ($node instanceof Expr\Cast) {
+            return $this->findTaintedVarName($node->expr, $scope);
+        }
+
+        if ($node instanceof Expr\Array_) {
+            foreach ($node->items as $item) {
+                if ($item !== null) {
+                    $found = $this->findTaintedVarName($item->value, $scope);
+                    if ($found !== null) {
+                        return $found;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Find the enclosing function's scope, caching one per FunctionLike node.
+     *
+     * @param array<int,FunctionScope> $scopes
+     */
+    private function scopeFor(Node $call, array &$scopes): FunctionScope
+    {
+        $fn = $this->enclosingFunction($call);
+
+        if ($fn === null) {
+            return FunctionScope::empty();
+        }
+
+        $key = spl_object_id($fn);
+
+        return $scopes[$key] ??= FunctionScope::for($fn);
+    }
+
+    private function enclosingFunction(Node $node): ?FunctionLike
+    {
+        $p = $node->getAttribute('parent');
+
+        while ($p !== null) {
+            if ($p instanceof FunctionLike) {
+                return $p;
+            }
+            $p = $p->getAttribute('parent');
         }
 
         return null;

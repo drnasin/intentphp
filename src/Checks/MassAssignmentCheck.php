@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace IntentPHP\Guard\Checks;
 
 use IntentPHP\Guard\Analysis\AstParser;
+use IntentPHP\Guard\Analysis\FunctionScope;
 use IntentPHP\Guard\Scan\Finding;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
+use PhpParser\Node\FunctionLike;
 use PhpParser\NodeFinder;
 use Symfony\Component\Finder\Finder;
 
@@ -147,8 +149,11 @@ class MassAssignmentCheck implements CheckInterface
                     || $n instanceof Expr\NullsafeMethodCall,
             );
 
+            $scopes = [];
+
             foreach ($calls as $call) {
-                $finding = $this->classify($call, $unsafeModels, $filePath, $lines);
+                $scope = $this->scopeFor($call, $scopes);
+                $finding = $this->classify($call, $unsafeModels, $filePath, $lines, $scope);
 
                 if ($finding !== null) {
                     $findings[] = $finding;
@@ -163,7 +168,7 @@ class MassAssignmentCheck implements CheckInterface
      * @param array<string, array{file: string, reason: string}> $unsafeModels
      * @param string[] $lines
      */
-    private function classify(Node $call, array $unsafeModels, string $filePath, array $lines): ?Finding
+    private function classify(Node $call, array $unsafeModels, string $filePath, array $lines, FunctionScope $scope): ?Finding
     {
         if (! $call->name instanceof Node\Identifier) {
             return null;
@@ -189,7 +194,7 @@ class MassAssignmentCheck implements CheckInterface
             return null;
         }
 
-        $input = $this->describeInput($valuesArg);
+        $input = $this->describeInput($valuesArg, $scope);
 
         if ($input === null) {
             return null;
@@ -248,14 +253,24 @@ class MassAssignmentCheck implements CheckInterface
     }
 
     /**
-     * Classify the value argument: bulk request input → HIGH, validated() → MEDIUM.
+     * Classify the value argument:
+     *   - bulk request input → HIGH (direct call), MEDIUM (validated())
+     *   - a tainted variable (assigned from a bulk request expression earlier
+     *     in the same function — C2 indirection)
+     *
      * Returns [severity, normalized label] or null. The label is normalized to
-     * '$request' / 'request()' so the fingerprint is stable across variable names.
+     * '$request' (or '$var' for tainted vars) so the fingerprint is stable
+     * across param renames but still distinguishes the trigger source.
      *
      * @return array{0: string, 1: string}|null
      */
-    private function describeInput(Node $arg): ?array
+    private function describeInput(Node $arg, FunctionScope $scope): ?array
     {
+        // C2: $d = $request->all(); $m->fill($d);  →  $d is in $scope->taintedBulk.
+        if ($arg instanceof Expr\Variable && is_string($arg->name) && isset($scope->taintedBulk[$arg->name])) {
+            return [$scope->taintedBulk[$arg->name], "tainted variable \${$arg->name}"];
+        }
+
         if (! $arg instanceof Expr\MethodCall && ! $arg instanceof Expr\NullsafeMethodCall) {
             return null;
         }
@@ -264,7 +279,7 @@ class MassAssignmentCheck implements CheckInterface
             return null;
         }
 
-        $root = $this->requestRootLabel($arg->var);
+        $root = $this->requestRootLabel($arg->var, $scope);
 
         if ($root === null) {
             return null;
@@ -290,11 +305,17 @@ class MassAssignmentCheck implements CheckInterface
         return null;
     }
 
-    /** Normalized request-root label, or null if the expression isn't request-rooted. */
-    private function requestRootLabel(Node $node): ?string
+    /**
+     * Normalized request-root label, or null if the expression isn't request-rooted.
+     * Recognises the literal $request, request() helper, and any FormRequest
+     * parameter alias declared in the enclosing function's scope.
+     */
+    private function requestRootLabel(Node $node, FunctionScope $scope): ?string
     {
-        if ($node instanceof Expr\Variable && $node->name === 'request') {
-            return '$request';
+        if ($node instanceof Expr\Variable && is_string($node->name)) {
+            if ($node->name === 'request' || isset($scope->aliases[$node->name])) {
+                return '$request';
+            }
         }
 
         if ($node instanceof Expr\FuncCall
@@ -302,6 +323,38 @@ class MassAssignmentCheck implements CheckInterface
             && $node->name->toString() === 'request'
         ) {
             return 'request()';
+        }
+
+        return null;
+    }
+
+    /**
+     * Find the enclosing function's scope, caching one per FunctionLike node.
+     *
+     * @param array<int,FunctionScope> $scopes
+     */
+    private function scopeFor(Node $call, array &$scopes): FunctionScope
+    {
+        $fn = $this->enclosingFunction($call);
+
+        if ($fn === null) {
+            return FunctionScope::empty();
+        }
+
+        $key = spl_object_id($fn);
+
+        return $scopes[$key] ??= FunctionScope::for($fn);
+    }
+
+    private function enclosingFunction(Node $node): ?FunctionLike
+    {
+        $p = $node->getAttribute('parent');
+
+        while ($p !== null) {
+            if ($p instanceof FunctionLike) {
+                return $p;
+            }
+            $p = $p->getAttribute('parent');
         }
 
         return null;
