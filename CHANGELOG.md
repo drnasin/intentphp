@@ -2,17 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] — Phase 13: Spec↔Code Mapping Layer
+## [Unreleased]
+
+_No entries yet._
+
+---
+
+## [2.0.0] — 2026-05-28
+
+Major release. Two batches of work land together: the previously-unreleased Spec↔Code Mapping (Phase 13) + Sync Suggestions (Phase 14), and a 2026-05 sweep that closes most of an external security/correctness review. Read the upgrade notes before bumping.
+
+### 🔴 Upgrade Notes
+
+- **Re-baseline required.** Several finding identities changed. Route-authorization fingerprints normalize HTTP methods (HEAD stripped, sorted) and stop including a snippet line shift; dangerous-query identity moved from `sha1(snippet)` to `{sink}:{pattern}` so reformatting no longer churns the baseline; mass-assignment context records resolved receiver models and tainted-variable patterns. Run `php artisan guard:baseline` once after upgrading.
+- **New runtime dependency: `nikic/php-parser` ^5** (pulled automatically by `composer update`). Requires `ext-tokenizer` — default in PHP ≥7.4, so no consumer action needed beyond install.
+- **`symfony/yaml` floor raised** from `^6.0|^7.0` to `^6.4.40|^7.4.12` to exclude release lines affected by three unfixed YAML-parser CVEs (`CVE-2026-45304/45305/45133`: billion-laughs, ReDoS, stack-exhaustion). The excluded lines (6.0–6.3, 7.0–7.3) are EOL and have no fix backported.
+- **New findings will fire on existing code.** The AST rewrite catches multi-line calls, raw-SQL interpolation/concatenation, the `DB` facade family, and request-input flowing through an intermediate variable (`$d = $request->all(); $m->fill($d);`) that the per-line regex missed. CI runs that were green will surface new HIGH findings until you triage or re-baseline.
+- **Severity downgrade:** the name-only `orderBy($sort|order|column|field|dir)` heuristic now emits MEDIUM instead of HIGH; it never gates CI at the default severity. Findings that previously failed your build because of this pattern will no longer do so.
 
 ### Added
 
-- Spec↔Code Mapping Layer (`MappingIndex` v1.0, `MappingBuilder`, `MappingResolver`): builds a versioned, deterministic mapping index linking intent spec entities (auth rules, model specs) to code targets (routes, models).
-- `MappingEntry` DTO with `link_type` field (`spec_linked` or `observed_only`) for explicit entry classification. Consumers use `isSpecLinked()` / `isObservedOnly()` / `hasSpecLink()` — no null-checking needed.
-- `MappingResolver` query API: `byRuleId()`, `byModelFqcn()`, `byRouteId()`, `observedOnly()`, `specLinked()`, `hasSpecLink()`, `all()`.
-- CLI: `guard:intent map` builds and summarizes the mapping index. `guard:intent map --dump` outputs deterministic JSON (sorted entries, sha256 checksum).
-- Drift engine integration: `DriftEngine` accepts optional `MappingResolver` via constructor. When present, drift items are enriched with `mapping_ids` context key. Fingerprints are unaffected.
-- Golden test fixtures for mapping output (`tests/fixtures/mapping/full/expected.json`, `tests/fixtures/mapping/observed-only/expected.json`).
-- Fingerprint stability test proving drift fingerprints are identical with and without mapping enrichment.
+- AST-based detection in `MassAssignmentCheck` and `DangerousQueryInputCheck`, via `nikic/php-parser`. Catches multi-line calls and raw-SQL string interpolation/concatenation the per-line regex missed.
+- Variable-indirection taint tracking: per-function, monotonic, flow-insensitive. Catches `$d = $request->all(); $m->fill($d);`, `$sql = '…' . $request->input('id'); DB::select($sql);`, and the same buried in `??` / ternary / match arm / cast / array literal / chained assign / wrapped foreach source / nested list destructure. FormRequest-typed parameters are recognised as request aliases when the type FQCN is `Illuminate\Http\Request`, `Illuminate\Foundation\Http\FormRequest`, or under a `*\Http\Requests\*` namespace.
+- New raw-SQL sinks: `havingRaw`, `groupByRaw`, `fromRaw`, and the full `DB` facade family (`raw`, `statement`, `select`, `selectOne`, `insert`, `update`, `delete`, `unprepared`).
+- New finding type `scan/parse-error` (MEDIUM): an unparseable PHP file is surfaced as a coverage gap finding instead of being silently skipped.
+- `composer audit --no-dev` step in CI on every matrix combination — runtime dependencies are checked on every build, dev tree is scoped out (host-app-controlled).
+- Spec↔Code Mapping Layer (`MappingIndex` v1.0, `MappingBuilder`, `MappingResolver`): versioned, deterministic mapping index linking intent spec entities to code targets. `guard:intent map` CLI; `--dump` outputs deterministic JSON with a sha256 checksum.
+- `MappingEntry` DTO with explicit `link_type` (`spec_linked` / `observed_only`) and a `MappingResolver` query API (`byRuleId`/`byModelFqcn`/`byRouteId`/`observedOnly`/`specLinked`/`hasSpecLink`/`all`).
+- Drift engine integration with the mapping layer: `DriftEngine` accepts an optional `MappingResolver` and enriches items with a `mapping_ids` context key without changing fingerprints.
+- Sync Suggestions Engine (Phase 14): code↔spec providers and multiple renderers for guided spec construction.
+
+### Changed
+
+- `Fingerprint::routeIdentifier` normalizes HTTP methods (HEAD excluded, sorted), so the same route yields the same fingerprint regardless of registration order.
+- `Fingerprint::normalizePath` is boundary-anchored — `myapp/` is no longer mistaken for an `app/` segment — and prefers the last matching segment so machine-specific prefixes don't leak.
+- `BaselineManager::save` writes entries sorted by fingerprint (`SORT_STRING`); baseline JSON is byte-stable regardless of emission order.
+- `GuardScanCommand` sorts findings globally by `(file, check, line, fingerprint)` before reporting, using `strcmp` so sha1 hashes of the magic-hash form aren't compared numerically.
+- `MassAssignmentCheck` no longer flags a bare Eloquent model as "no `$fillable`"; that was a false positive (the framework default is `$guarded = ['*']`). New rule: unsafe iff `$guarded = []` OR partial `$guarded` (non-`['*']`) without `$fillable`. `$guarded = ['*']` and any `$fillable` allowlist are safe.
+- `AuthMiddlewareClassifier` accepts both `:` and `.` as alias separators, so `auth.basic` / `auth.session` are recognised as auth protection.
+- Default `auth_middleware_suffixes` is now `['\Authenticate']` so any namespace-anchored `…\Authenticate` middleware class is recognised. Set `[]` in config to opt out.
+- `orderBy($sort|order|column|field|dir)` name heuristic emits MEDIUM with a "verify" message instead of HIGH (it can't tell a validated variable from a tainted one). Coverage breadth unchanged.
+- `DangerousQueryInputCheck` treats only the FIRST argument of `where`/`orderBy`/`whereColumn` as an injection sink — a request value in a later argument is a parameterized binding and is safe.
+- `Fingerprint::dangerousQueryIdentifier` (new) uses `{sink}:{pattern}` instead of `sha1(snippet)`, so reformatting the flagged line no longer churns the baseline.
+- `ScanCache` payload is JSON instead of `serialize()`d. `ScanCache::VERSION` bumped `1.1.0` → `1.2.0` to positively invalidate leftover serialize-format files via `clear()` on the first scan after upgrade.
+
+### Security
+
+- `unserialize()` removed from the scan cache, eliminating a PHP object-injection gadget surface (low severity — local FS-write threat — but gratuitous).
+- `symfony/yaml` floor raised to `^6.4.40|^7.4.12` (see Upgrade Notes). Guard parses untrusted `intent/intent.yaml`, so this directly closes the exposure.
+
+### Fixed
+
+- Route-authorization fingerprints were unstable across HTTP-method registration order. Now stable.
+- Path normalization could leak a machine-specific prefix into the fingerprint when the path contained an earlier `app/`/`tests/`/`routes/` segment.
+- A `*Request`-suffixed domain class typed parameter is no longer falsely treated as a Laravel request alias — alias detection now resolves the type's FQCN via `NameResolver` and matches Laravel patterns.
+- Findings were never globally sorted before output, producing noisy JSON/baseline diffs.
 
 ### Behavior
 
@@ -20,8 +64,10 @@ All notable changes to this project will be documented in this file.
 - `DriftEngine` backward compatible: existing `new DriftEngine([$detector])` call sites work unchanged (second param defaults to null).
 - `DriftDetectorInterface` unchanged — no new methods added.
 - `mapping_ids` context key only present when `MappingResolver` is provided; drift fingerprint seeds (`rule_id`, `route_identifier`, `model_fqcn`, `drift_type`) are never affected.
-- Checksum: sha256 of compact canonical JSON (`JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`, no pretty-print) over sorted entries array. No timestamps or absolute paths.
-- Selector methods normalized to uppercase before matching, consistent with `ObservedRoute.methods`.
+
+### Documentation
+
+- README updated to reflect AST detection (multi-line, interpolation, taint, FormRequest alias), the corrected mass-assignment rule, and the structured `route_authorization` config block.
 
 ---
 
