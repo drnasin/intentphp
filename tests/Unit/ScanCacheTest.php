@@ -101,6 +101,43 @@ class ScanCacheTest extends TestCase
         $this->assertNull($cache->get('b', 'v1'));
     }
 
+    public function test_payload_on_disk_is_json_not_php_serialized(): void
+    {
+        // A1: the cache file must be JSON, so unserialize() — a PHP object
+        // injection gadget surface — is never invoked on file-system content.
+        $cache = new ScanCache($this->tempDir);
+        $cache->put('shape', ['a' => 1, 'b' => ['c' => 'x']], 'v1');
+
+        $files = glob($this->tempDir . '/*.cache');
+        $this->assertNotEmpty($files);
+        $raw = file_get_contents($files[0]);
+
+        $this->assertJson($raw);
+        // PHP-serialized payloads start with one of these tokens.
+        $this->assertDoesNotMatchRegularExpression('/^[aOsibdN]:\d*[:;{"]/', $raw);
+    }
+
+    public function test_serialize_format_files_are_treated_as_miss(): void
+    {
+        // If an upgrade encounters a leftover serialize() payload (from an
+        // older Guard release, or a hostile drop-in) it must NOT be decoded.
+        // The version bump positively invalidates such files via clear();
+        // even if that fails, JSON decode of a serialize payload yields null,
+        // which the cache treats as a miss.
+        if (! is_dir($this->tempDir)) {
+            mkdir($this->tempDir, 0777, true);
+        }
+        file_put_contents($this->tempDir . '/.version', 'v1');
+        file_put_contents(
+            $this->tempDir . '/legacy.cache',
+            serialize(['hello' => 'world']),
+        );
+
+        $cache = new ScanCache($this->tempDir);
+
+        $this->assertNull($cache->get('legacy', 'v1'));
+    }
+
     // ── computeVersion ──────────────────────────────────────────────
 
     public function test_compute_version_stable(): void

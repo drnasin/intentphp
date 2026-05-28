@@ -66,6 +66,9 @@ class CacheKeyCompositionTest extends TestCase
 
     public function test_uses_version_constant(): void
     {
-        $this->assertSame('1.1.0', ScanCache::VERSION);
+        // 1.2.0 — bumped when the cache encoding switched from serialize()
+        // to JSON, so any leftover serialize-format files are positively
+        // invalidated on upgrade rather than silently mis-decoded.
+        $this->assertSame('1.2.0', ScanCache::VERSION);
     }
 }
