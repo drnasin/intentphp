@@ -39,5 +39,12 @@ jobs:
       - name: Install dependencies
         run: composer update --prefer-dist --no-interaction --no-progress
 
+      - name: Audit runtime dependencies
+        # Fails the build if any of the runtime require entries (or their
+        # transitive runtime deps) has a known advisory. Dev deps are scoped
+        # out because they're host-app-controlled (testbench/phpunit pull in
+        # things we don't ship to consumers).
+        run: composer audit --no-dev
+
       - name: Run tests
         run: vendor/bin/phpunit --colors=always
