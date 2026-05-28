@@ -4,11 +4,20 @@ declare(strict_types=1);
 
 namespace IntentPHP\Guard\Checks;
 
+use IntentPHP\Guard\Analysis\AstParser;
 use IntentPHP\Guard\Scan\Finding;
+use PhpParser\Node;
+use PhpParser\Node\Expr;
+use PhpParser\NodeFinder;
 use Symfony\Component\Finder\Finder;
 
 class MassAssignmentCheck implements CheckInterface
 {
+    /** Bulk request input → HIGH; validated() → MEDIUM. */
+    private const BULK_METHODS = ['all', 'input', 'except'];
+
+    private readonly AstParser $ast;
+
     /**
      * @param string[]|null $onlyFiles When set, only scan these controller files (models always get full scan)
      */
@@ -16,7 +25,10 @@ class MassAssignmentCheck implements CheckInterface
         private readonly string $modelsPath,
         private readonly string $controllersPath,
         private readonly ?array $onlyFiles = null,
-    ) {}
+        ?AstParser $ast = null,
+    ) {
+        $this->ast = $ast ?? new AstParser();
+    }
 
     public function name(): string
     {
@@ -27,9 +39,12 @@ class MassAssignmentCheck implements CheckInterface
     public function run(): array
     {
         $unsafeModels = $this->findUnsafeModels();
-        $findings = $this->scanControllersForMassAssignment($unsafeModels);
 
-        return $findings;
+        if ($unsafeModels === []) {
+            return [];
+        }
+
+        return $this->scanControllers($unsafeModels);
     }
 
     /**
@@ -98,101 +113,45 @@ class MassAssignmentCheck implements CheckInterface
     }
 
     /**
-     * Scan controllers for Model::create($request->all()), ->update($request->all()), ->fill($request->all()).
+     * Scan controllers for mass-assignment sinks fed directly by request input:
+     *   Model::create($request->all())     — model resolved from the static call
+     *   $x->update($request->all())        — loose; fires when any unsafe model exists
+     *   $x->fill($request->validated())    — MEDIUM (validated, but model unguarded)
+     *
+     * AST-based, so multi-line calls are detected (a per-line regex cannot see
+     * them). Tracking input through an intermediate variable is taint analysis,
+     * intentionally out of scope here (C2 follow-up).
      *
      * @param array<string, array{file: string, reason: string}> $unsafeModels
      * @return Finding[]
      */
-    private function scanControllersForMassAssignment(array $unsafeModels): array
+    private function scanControllers(array $unsafeModels): array
     {
         $findings = [];
-
-        if (! is_dir($this->controllersPath)) {
-            return $findings;
-        }
-
-        if (empty($unsafeModels)) {
-            return $findings;
-        }
-
-        $modelNames = array_keys($unsafeModels);
-        $modelPattern = implode('|', array_map('preg_quote', $modelNames));
-
-        $highPatterns = [
-            "create with \$request->all()" => '/(' . $modelPattern . ')::create\s*\(\s*\$request->all\(\)/',
-            "update with \$request->all()" => '/->update\s*\(\s*\$request->all\(\)/',
-            "fill with \$request->all()" => '/->fill\s*\(\s*\$request->all\(\)/',
-            "create with \$request->input()" => '/(' . $modelPattern . ')::create\s*\(\s*\$request->input\(\)/',
-            "update with \$request->input()" => '/->update\s*\(\s*\$request->input\(\)/',
-            "fill with \$request->input()" => '/->fill\s*\(\s*\$request->input\(\)/',
-            "create with request()->all()" => '/(' . $modelPattern . ')::create\s*\(\s*request\(\)->all\(\)/',
-            "update with request()->all()" => '/->update\s*\(\s*request\(\)->all\(\)/',
-            "fill with request()->all()" => '/->fill\s*\(\s*request\(\)->all\(\)/',
-        ];
-
-        $mediumPatterns = [
-            "create with \$request->validated()" => '/(' . $modelPattern . ')::create\s*\(\s*\$request->validated\(\)/',
-            "update with \$request->validated()" => '/->update\s*\(\s*\$request->validated\(\)/',
-            "fill with \$request->validated()" => '/->fill\s*\(\s*\$request->validated\(\)/',
-            "create with request()->validated()" => '/(' . $modelPattern . ')::create\s*\(\s*request\(\)->validated\(\)/',
-            "update with request()->validated()" => '/->update\s*\(\s*request\(\)->validated\(\)/',
-            "fill with request()->validated()" => '/->fill\s*\(\s*request\(\)->validated\(\)/',
-        ];
-
-        $patterns = $highPatterns;
+        $nodeFinder = new NodeFinder();
 
         foreach ($this->controllerFilesToScan() as [$filePath, $contents]) {
+            $stmts = $this->ast->parse($filePath, $contents);
+
+            if ($stmts === null) {
+                continue; // parse error recorded on the shared parser; surfaced by the command
+            }
+
             $lines = explode("\n", $contents);
 
-            foreach ($lines as $lineNumber => $lineContent) {
-                // HIGH severity: $request->all(), $request->input(), request()->all()
-                foreach ($patterns as $label => $pattern) {
-                    if (preg_match($pattern, $lineContent, $matches)) {
-                        $modelName = $matches[1] ?? $this->inferModelFromContext($lines, $lineNumber, $modelNames);
+            /** @var array<Expr\StaticCall|Expr\MethodCall|Expr\NullsafeMethodCall> $calls */
+            $calls = $nodeFinder->find(
+                $stmts,
+                static fn (Node $n): bool => $n instanceof Expr\StaticCall
+                    || $n instanceof Expr\MethodCall
+                    || $n instanceof Expr\NullsafeMethodCall,
+            );
 
-                        $modelInfo = $modelName && isset($unsafeModels[$modelName])
-                            ? " Model {$modelName}: {$unsafeModels[$modelName]['reason']}."
-                            : '';
+            foreach ($calls as $call) {
+                $finding = $this->classify($call, $unsafeModels, $filePath, $lines);
 
-                        $findings[] = Finding::high(
-                            check: $this->name(),
-                            message: "Mass assignment risk: {$label}.{$modelInfo}",
-                            file: $filePath,
-                            line: $lineNumber + 1,
-                            context: [
-                                'pattern' => $label,
-                                'snippet' => trim($lineContent),
-                                'model' => $modelName,
-                                'model_file' => $modelName ? ($unsafeModels[$modelName]['file'] ?? null) : null,
-                            ],
-                            fix_hint: "Use \$request->only([...]) or \$request->validated() instead of \$request->all(). Define \$fillable on the model.",
-                        );
-                    }
-                }
-
-                // MEDIUM severity: $request->validated() — safer but model still unprotected
-                foreach ($mediumPatterns as $label => $pattern) {
-                    if (preg_match($pattern, $lineContent, $matches)) {
-                        $modelName = $matches[1] ?? $this->inferModelFromContext($lines, $lineNumber, $modelNames);
-
-                        $modelInfo = $modelName && isset($unsafeModels[$modelName])
-                            ? " Model {$modelName}: {$unsafeModels[$modelName]['reason']}."
-                            : '';
-
-                        $findings[] = Finding::medium(
-                            check: $this->name(),
-                            message: "Mass assignment with validated(): {$label}.{$modelInfo} Using validated() is safer, but the model itself lacks protection.",
-                            file: $filePath,
-                            line: $lineNumber + 1,
-                            context: [
-                                'pattern' => $label,
-                                'snippet' => trim($lineContent),
-                                'model' => $modelName,
-                                'model_file' => $modelName ? ($unsafeModels[$modelName]['file'] ?? null) : null,
-                            ],
-                            fix_hint: "validated() is a good practice, but also define \$fillable on the model for defense in depth.",
-                        );
-                    }
+                if ($finding !== null) {
+                    $findings[] = $finding;
                 }
             }
         }
@@ -201,25 +160,187 @@ class MassAssignmentCheck implements CheckInterface
     }
 
     /**
-     * Try to figure out which model a ->update() or ->fill() call relates to
-     * by scanning nearby lines for type hints or variable assignments.
-     *
+     * @param array<string, array{file: string, reason: string}> $unsafeModels
      * @param string[] $lines
-     * @param string[] $modelNames
      */
-    private function inferModelFromContext(array $lines, int $currentLine, array $modelNames): ?string
+    private function classify(Node $call, array $unsafeModels, string $filePath, array $lines): ?Finding
     {
-        $searchStart = max(0, $currentLine - 10);
-        $searchEnd = $currentLine;
-        $modelPattern = implode('|', array_map('preg_quote', $modelNames));
+        if (! $call->name instanceof Node\Identifier) {
+            return null;
+        }
 
-        for ($i = $searchEnd; $i >= $searchStart; $i--) {
-            if (preg_match('/(' . $modelPattern . ')\s/', $lines[$i], $matches)) {
-                return $matches[1];
-            }
+        $method = $call->name->toString();
+
+        if ($call instanceof Expr\StaticCall && $method === 'create') {
+            $isStaticCreate = true;
+            $model = $call->class instanceof Node\Name ? $call->class->getLast() : null;
+            $valuesArg = $call->args[0]->value ?? null;
+        } elseif (($call instanceof Expr\MethodCall || $call instanceof Expr\NullsafeMethodCall)
+            && in_array($method, ['update', 'fill'], true)
+        ) {
+            $isStaticCreate = false;
+            $model = $this->resolveReceiverModel($call->var);
+            $valuesArg = $call->args[0]->value ?? null;
+        } else {
+            return null;
+        }
+
+        if (! $valuesArg instanceof Node) {
+            return null;
+        }
+
+        $input = $this->describeInput($valuesArg);
+
+        if ($input === null) {
+            return null;
+        }
+
+        [$severity, $inputLabel] = $input;
+
+        // Model-safety gate (run() already guaranteed $unsafeModels is non-empty):
+        //  - resolved + unsafe → flag, enriched with the reason.
+        //  - static Model::create on a model that is NOT in the unsafe set → skip
+        //    (parity with the old regex, which anchored ::create to unsafe models).
+        //  - ->update()/->fill(): stay LOOSE — flag regardless of the resolved
+        //    receiver. findUnsafeModels can't see protection/opening inherited from
+        //    a parent/trait, so suppressing "safe-looking" receivers here would
+        //    drop real vulns (Model::query()->update($request->all()) where the
+        //    parent sets $guarded=[]). Precision is the deferred model-confidence work.
+        if ($model !== null && isset($unsafeModels[$model])) {
+            $reason = $unsafeModels[$model]['reason'];
+            $modelFile = $unsafeModels[$model]['file'];
+        } elseif ($isStaticCreate) {
+            return null;
+        } else {
+            $reason = null;
+            $modelFile = null;
+        }
+
+        $label = "{$method} with {$inputLabel}";
+        $modelInfo = ($model !== null && $reason !== null) ? " Model {$model}: {$reason}." : '';
+
+        $context = [
+            'pattern' => $label,
+            'snippet' => $this->snippet($call, $lines),
+            'model' => $model ?? '',
+            'model_file' => $modelFile,
+        ];
+
+        if ($severity === 'high') {
+            return Finding::high(
+                check: $this->name(),
+                message: "Mass assignment risk: {$label}.{$modelInfo}",
+                file: $filePath,
+                line: $call->name->getStartLine(),
+                context: $context,
+                fix_hint: "Use \$request->only([...]) or \$request->validated() instead of \$request->all(). Define \$fillable on the model.",
+            );
+        }
+
+        return Finding::medium(
+            check: $this->name(),
+            message: "Mass assignment with validated(): {$label}.{$modelInfo} Using validated() is safer, but the model itself lacks protection.",
+            file: $filePath,
+            line: $call->name->getStartLine(),
+            context: $context,
+            fix_hint: "validated() is a good practice, but also define \$fillable on the model for defense in depth.",
+        );
+    }
+
+    /**
+     * Classify the value argument: bulk request input → HIGH, validated() → MEDIUM.
+     * Returns [severity, normalized label] or null. The label is normalized to
+     * '$request' / 'request()' so the fingerprint is stable across variable names.
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    private function describeInput(Node $arg): ?array
+    {
+        if (! $arg instanceof Expr\MethodCall && ! $arg instanceof Expr\NullsafeMethodCall) {
+            return null;
+        }
+
+        if (! $arg->name instanceof Node\Identifier) {
+            return null;
+        }
+
+        $root = $this->requestRootLabel($arg->var);
+
+        if ($root === null) {
+            return null;
+        }
+
+        $method = $arg->name->toString();
+
+        // $request->input('key') returns a SINGLE field, not the bulk payload —
+        // only the no-argument form is mass assignment. all()/except() are bulk
+        // regardless of arguments.
+        if ($method === 'input' && $arg->args !== []) {
+            return null;
+        }
+
+        if (in_array($method, self::BULK_METHODS, true)) {
+            return ['high', "{$root}->{$method}()"];
+        }
+
+        if ($method === 'validated') {
+            return ['medium', "{$root}->validated()"];
         }
 
         return null;
+    }
+
+    /** Normalized request-root label, or null if the expression isn't request-rooted. */
+    private function requestRootLabel(Node $node): ?string
+    {
+        if ($node instanceof Expr\Variable && $node->name === 'request') {
+            return '$request';
+        }
+
+        if ($node instanceof Expr\FuncCall
+            && $node->name instanceof Node\Name
+            && $node->name->toString() === 'request'
+        ) {
+            return 'request()';
+        }
+
+        return null;
+    }
+
+    /**
+     * Best-effort model class for a method-call receiver: walk the fluent chain
+     * to its root and read a static call (Model::query()/find()) or `new Model`.
+     * Returns null for a plain variable (e.g. $user) — full resolution is a
+     * follow-up; null keeps the legacy loose behavior.
+     */
+    private function resolveReceiverModel(Node $recv): ?string
+    {
+        while ($recv instanceof Expr\MethodCall || $recv instanceof Expr\NullsafeMethodCall) {
+            $recv = $recv->var;
+        }
+
+        if ($recv instanceof Expr\StaticCall && $recv->class instanceof Node\Name) {
+            return $recv->class->getLast();
+        }
+
+        if ($recv instanceof Expr\New_ && $recv->class instanceof Node\Name) {
+            return $recv->class->getLast();
+        }
+
+        return null;
+    }
+
+    /**
+     * @param string[] $lines
+     */
+    private function snippet(Node $call, array $lines): string
+    {
+        $start = max(0, $call->getStartLine() - 1);
+        $end = min(count($lines) - 1, $call->getEndLine() - 1);
+
+        $text = trim(implode(' ', array_map('trim', array_slice($lines, $start, $end - $start + 1))));
+
+        return mb_strlen($text) > 200 ? mb_substr($text, 0, 200) . '…' : $text;
     }
 
     private function extractClassName(string $contents): ?string
