@@ -37,6 +37,17 @@ class DangerousQueryInputCheckTest extends TestCase
         return (new DangerousQueryInputCheck($this->controllersPath))->run();
     }
 
+    /** @return Finding[] */
+    private function scanMethod(string $methodSource): array
+    {
+        file_put_contents(
+            $this->controllersPath . '/C.php',
+            "<?php\nclass C {\n{$methodSource}\n}\n",
+        );
+
+        return (new DangerousQueryInputCheck($this->controllersPath))->run();
+    }
+
     public function test_direct_request_input_is_high(): void
     {
         $findings = $this->scan('        User::query()->orderBy($request->input("sort"));');
@@ -144,6 +155,145 @@ class DangerousQueryInputCheckTest extends TestCase
         $findings = $this->scan('        DB::table("u")->whereRaw("name = $safeConst");');
 
         $this->assertSame([], $findings);
+    }
+
+    public function test_tainted_variable_interpolated_in_raw_sql_is_flagged(): void
+    {
+        // C2: $dir is filled from request input on a previous line, then
+        // interpolated into raw SQL. The per-line regex couldn't see this; AST
+        // + monotonic taint now can.
+        $findings = $this->scan(
+            "        \$dir = \$request->input('dir');\n"
+            . "        DB::table('u')->orderByRaw(\"name \$dir\");"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+        $this->assertStringContainsString('tainted variable $dir', $findings[0]->message);
+    }
+
+    public function test_tainted_variable_concatenated_in_raw_sql_is_flagged(): void
+    {
+        $findings = $this->scan(
+            "        \$q = \$request->input('q');\n"
+            . "        DB::table('u')->whereRaw('name = ' . \$q);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_tainted_variable_as_orderby_column_is_flagged(): void
+    {
+        $findings = $this->scan(
+            "        \$col = \$request->input('col');\n"
+            . "        User::query()->orderBy(\$col);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_form_request_alias_taints_through_indirection(): void
+    {
+        $findings = $this->scanMethod(<<<'PHP'
+            public function index(\App\Http\Requests\ReportRequest $r)
+            {
+                $col = $r->input('col');
+                User::query()->orderByRaw("name $col");
+            }
+        PHP);
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_taint_is_monotonic_across_reassignment_in_raw_sql(): void
+    {
+        // Once tainted, always tainted within the function — even after a
+        // reassignment to a safe value. Documented conservative FP.
+        $findings = $this->scan(
+            "        \$dir = \$request->input('dir');\n"
+            . "        \$dir = 'asc';\n"
+            . "        DB::table('u')->orderByRaw(\"name \$dir\");"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_untainted_variable_in_raw_sql_is_not_flagged(): void
+    {
+        // Sanity: only a request-derived variable triggers; an unrelated local
+        // variable does not (no taint, no FP).
+        $findings = $this->scan(
+            "        \$dir = 'asc';\n"
+            . "        DB::table('u')->orderByRaw(\"name \$dir\");"
+        );
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_foreach_element_taints_for_raw_sql(): void
+    {
+        // foreach element is a request-derived value → tainted for raw SQL.
+        $findings = $this->scan(<<<'PHP'
+        foreach ($request->all() as $v) {
+            DB::table('u')->whereRaw("name = $v");
+        }
+        PHP);
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_concat_built_sql_via_intermediate_is_flagged(): void
+    {
+        // Textbook SQLi: build the SQL string from request input, then pass it
+        // to DB::select / whereRaw. The wrapper recursion + variable taint
+        // catches this even though the sink doesn't reference $request itself.
+        $findings = $this->scan(
+            "        \$sql = 'SELECT * FROM u WHERE id = ' . \$request->input('id');\n"
+            . "        DB::select(\$sql);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_null_coalesce_in_sink_arg_is_flagged(): void
+    {
+        // $cond ?? $request->input('q') as the sink argument directly.
+        $findings = $this->scan(
+            "        User::query()->orderBy(\$fallback ?? \$request->input('col'));"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_taint_via_null_coalesce_assignment_is_flagged(): void
+    {
+        $findings = $this->scan(
+            "        \$col = \$x ?? \$request->input('col');\n"
+            . "        User::query()->orderBy(\$col);"
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_foreach_with_wrapped_source_taints_element(): void
+    {
+        // Real Laravel pattern: foreach (($request->input('ids') ?? []) as $id).
+        $findings = $this->scan(<<<'PHP'
+        foreach (($request->input('ids') ?? []) as $id) {
+            DB::table('u')->whereRaw("id = $id");
+        }
+        PHP);
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
     }
 
     public function test_fingerprint_is_stable_across_reformatting(): void
