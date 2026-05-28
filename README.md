@@ -295,11 +295,27 @@ Detects routes missing auth middleware or authorization calls. Checks route-leve
 
 ### 2. Dangerous Request Input in Queries
 
-Detects patterns where `$request->input()`, `$request->get()`, or `request()` helper values flow directly into query builder methods like `orderBy`, `where`, `whereRaw`, `selectRaw`, or `DB::raw`.
+AST-based detection of request input flowing into query builder sinks. Catches `whereRaw`, `orderByRaw`, `havingRaw`, `groupByRaw`, `selectRaw`, `fromRaw`, the column position of `orderBy` / `where` / `whereColumn`, and the `DB` facade family (`raw`, `statement`, `select`, `selectOne`, `insert`, `update`, `delete`, `unprepared`).
+
+Coverage extends beyond the literal `->whereRaw($request->...)` form. The check sees:
+
+- multi-line calls (formatting-independent);
+- string interpolation and concatenation embedding request input: `whereRaw("id = {$request->input('id')}")`, `'..' . $request->q`;
+- one-hop variable indirection (monotonic per-function taint): `$dir = $request->input('dir'); …->orderByRaw("name $dir")`;
+- request access through a FormRequest-typed parameter (any class under `*\Http\Requests\*`).
+
+`->where('col', $request->x)` is recognised as a safe parameterized binding and is **not** flagged. `->orderBy($sort)` based purely on a sort-like variable name is reported as MEDIUM (since the value may be validated) — it never gates CI.
 
 ### 3. Mass Assignment Risk
 
-Detects `Model::create($request->all())`, `->update($request->all())`, and `->fill($request->all())` when the model has no `$fillable` or uses `$guarded = []`. Usage of `$request->validated()` is flagged as MEDIUM severity.
+Detects bulk request input flowing into mass-assignment sinks: `Model::create(...)` and `->update(...)` / `->fill(...)`. Bulk input is `$request->all()`, argless `$request->input()`, `$request->except()`, or `$request->validated()` (the last is MEDIUM). One-hop variable indirection (`$d = $request->all(); $m->fill($d);`) is caught via the same per-function taint analysis as check #2.
+
+A model is treated as mass-assignable when:
+
+- `$guarded = []` (everything open), or
+- `$guarded` is set to a non-`['*']` partial allowlist **and** there is no `$fillable`.
+
+A bare Eloquent model (no `$fillable` and no `$guarded`) inherits the framework default `$guarded = ['*']` and is **not** flagged. Likewise, an explicit `$guarded = ['*']` or any `$fillable` allowlist is treated as safe.
 
 ### 4. Intent Auth (`intent-auth`)
 
@@ -397,13 +413,28 @@ Suppressed findings are tracked and shown in the summary. Disable inline ignores
 // config/guard.php
 
 return [
-    'auth_middlewares' => ['auth', 'auth:sanctum'],
+    // Structured (recommended). The legacy flat 'auth_middlewares' key still
+    // works for backward compatibility but is deprecated.
+    'route_authorization' => [
+        'auth_middleware_exact' => [
+            'auth',
+            'auth:sanctum',
+            'Filament\\Http\\Middleware\\Authenticate',
+        ],
+        // 'auth' matches both auth:sanctum and auth.basic (dotted aliases).
+        'auth_middleware_prefixes' => ['auth'],
+        // Any FQCN ending in \Authenticate (namespace-anchored) counts as auth,
+        // so custom App\Http\Middleware\Authenticate is recognised by default.
+        'auth_middleware_suffixes' => ['\\Authenticate'],
 
-    'public_routes' => [
-        'up',
-        'health',
-        'sanctum/csrf-cookie',
+        // Framework-standard guest routes Guard skips by default.
+        'skip_guest_routes' => ['login', 'register', 'forgot-password', /* ... */],
+        // Framework-standard infrastructure routes Guard skips by default.
+        'skip_infra_routes' => ['up', 'health', 'sanctum/csrf-cookie', 'livewire/*', /* ... */],
     ],
+
+    // Business-specific public routes (in addition to the skip lists above).
+    'public_routes' => [],
 
     'ai' => [
         'enabled' => env('GUARD_AI_ENABLED', false),
