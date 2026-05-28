@@ -109,6 +109,77 @@ class MassAssignmentCheckTest extends TestCase
         $this->assertSame([], $findings);
     }
 
+    public function test_multiline_create_call_is_detected(): void
+    {
+        // C1: the call spans lines — the old per-line regex missed this.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst("        OpenModel::create(\n            \$request->all()\n        );");
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_static_create_on_safe_model_is_not_flagged(): void
+    {
+        // ::create is anchored to unsafe models (parity). SafeModel has $fillable,
+        // so it is not in the unsafe set → not flagged. (OpenModel only makes the
+        // unsafe set non-empty so the scan runs.)
+        $this->model('OpenModel', '    protected $guarded = [];');
+        $this->model('SafeModel', "    protected \$fillable = ['name'];");
+
+        $findings = $this->runAgainst('        SafeModel::create($request->all());');
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_update_on_model_with_inherited_opening_is_still_flagged(): void
+    {
+        // findUnsafeModels can't see $guarded=[] inherited from a parent, so
+        // Invoice isn't in the unsafe set. ->update() stays LOOSE, so the real
+        // vuln is NOT dropped (regression guard against the resolved-but-safe FN).
+        $this->model('OpenModel', '    protected $guarded = [];');
+        $this->model('Invoice', '    // $guarded opened up in a parent class');
+
+        $findings = $this->runAgainst('        Invoice::query()->update($request->all());');
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
+    public function test_single_field_input_is_not_mass_assignment(): void
+    {
+        // $request->input('email') is a single value, not the bulk payload.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst('        OpenModel::create($request->input("email"));');
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_object_named_like_request_is_not_treated_as_request(): void
+    {
+        // $pullRequest / $friendRequest etc. are domain objects, not the HTTP
+        // request — must not be mistaken for request input.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst('        $pullRequest->fill($pullRequest->all());');
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_unknown_receiver_is_flagged_when_an_unsafe_model_exists(): void
+    {
+        // Receiver is a plain variable (unresolvable) → legacy loose behavior:
+        // flag while any unsafe model exists in the project.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst('        $thing->update($request->all());');
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+    }
+
     public function test_protection_inherited_from_parent_is_not_resolved(): void
     {
         // Documented limitation: only the model's own file is scanned. A child

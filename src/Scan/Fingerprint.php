@@ -24,6 +24,7 @@ class Fingerprint
         return match ($finding->check) {
             'route-authorization' => self::routeIdentifier($finding),
             'mass-assignment' => self::modelIdentifier($finding),
+            'dangerous-query-input' => self::dangerousQueryIdentifier($finding),
             'intent-auth' => self::intentAuthIdentifier($finding),
             'intent-mass-assignment' => self::intentMassAssignmentIdentifier($finding),
             'intent-drift/auth' => self::intentDriftAuthIdentifier($finding),
@@ -88,6 +89,19 @@ class Fingerprint
         $driftType = $finding->context['drift_type'] ?? '';
 
         return "drift:mass-assignment:{$fqcn}:{$driftType}";
+    }
+
+    /**
+     * Dangerous-query identity is the sink method + pattern, NOT the raw source
+     * snippet — so reformatting the flagged line (or wrapping a long call across
+     * lines) does not churn the fingerprint and break baseline suppression.
+     */
+    private static function dangerousQueryIdentifier(Finding $finding): string
+    {
+        $sink = $finding->context['sink'] ?? '';
+        $pattern = $finding->context['pattern'] ?? '';
+
+        return "dangerous-query:{$sink}:{$pattern}";
     }
 
     private static function snippetIdentifier(Finding $finding): string
