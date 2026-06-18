@@ -163,6 +163,57 @@ class IntentAuthCheckTest extends TestCase
         $this->assertStringContainsString("guard 'api'", $findings[0]->message);
     }
 
+    public function test_combined_guard_middleware_satisfies_guard_requirement(): void
+    {
+        // Regression #16: `auth:web,admin` must satisfy a `guard: web` requirement
+        // and must NOT produce a false-positive HIGH intent-auth finding.
+        $router = $this->makeRouter();
+        $router->get('/admin', fn () => 'ok')->middleware('auth:web,admin');
+
+        $spec = $this->makeSpec(
+            rules: [
+                new AuthRule(
+                    id: 'admin-guard',
+                    match: new RouteSelector(prefix: '/admin'),
+                    require: new AuthRequirement(authenticated: true, guard: 'web'),
+                ),
+            ],
+            guards: ['web' => 'session'],
+        );
+
+        $detector = new RouteProtectionDetector();
+        $check = new IntentAuthCheck($router, $spec, $detector);
+
+        $findings = $check->run();
+        $this->assertSame([], $findings);
+    }
+
+    public function test_guard_genuinely_missing_still_flagged(): void
+    {
+        // True-positive preserved: `auth:web` does not satisfy a `guard: admin` requirement.
+        $router = $this->makeRouter();
+        $router->get('/admin', fn () => 'ok')->middleware('auth:web');
+
+        $spec = $this->makeSpec(
+            rules: [
+                new AuthRule(
+                    id: 'admin-guard',
+                    match: new RouteSelector(prefix: '/admin'),
+                    require: new AuthRequirement(authenticated: true, guard: 'admin'),
+                ),
+            ],
+            guards: ['admin' => 'session'],
+        );
+
+        $detector = new RouteProtectionDetector();
+        $check = new IntentAuthCheck($router, $spec, $detector);
+
+        $findings = $check->run();
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+        $this->assertStringContainsString("guard 'admin'", $findings[0]->message);
+    }
+
     public function test_multiple_rules_same_requirement_emit_one_finding(): void
     {
         $router = $this->makeRouter();

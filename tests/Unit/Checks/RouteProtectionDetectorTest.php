@@ -87,6 +87,54 @@ class RouteProtectionDetectorTest extends TestCase
         $this->assertSame($classifier, $detector->getClassifier());
     }
 
+    public function test_has_guard_middleware_single_guard_matches(): void
+    {
+        $detector = new RouteProtectionDetector();
+
+        $this->assertTrue($detector->hasGuardMiddleware(['auth:web'], 'web'));
+    }
+
+    public function test_has_guard_middleware_combined_guards_match_each_member(): void
+    {
+        $detector = new RouteProtectionDetector();
+
+        // Combined-guard syntax declares multiple guards; any member matches.
+        $this->assertTrue($detector->hasGuardMiddleware(['auth:web,admin'], 'web'));
+        $this->assertTrue($detector->hasGuardMiddleware(['auth:web,admin'], 'admin'));
+        $this->assertTrue($detector->hasGuardMiddleware(['auth:admin,web'], 'web'));
+    }
+
+    public function test_has_guard_middleware_handles_whitespace_in_combined_list(): void
+    {
+        $detector = new RouteProtectionDetector();
+
+        $this->assertTrue($detector->hasGuardMiddleware(['auth:web, admin'], 'admin'));
+    }
+
+    public function test_has_guard_middleware_missing_guard_returns_false(): void
+    {
+        $detector = new RouteProtectionDetector();
+
+        $this->assertFalse($detector->hasGuardMiddleware(['auth:web'], 'admin'));
+    }
+
+    public function test_has_guard_middleware_plain_auth_does_not_declare_specific_guard(): void
+    {
+        $detector = new RouteProtectionDetector();
+
+        // Plain `auth` (no params) declares no specific guard — preserves prior semantics.
+        $this->assertFalse($detector->hasGuardMiddleware(['auth'], 'web'));
+    }
+
+    public function test_middleware_declares_guard_static_matcher(): void
+    {
+        $this->assertTrue(RouteProtectionDetector::middlewareDeclaresGuard(['auth:web'], 'web'));
+        $this->assertTrue(RouteProtectionDetector::middlewareDeclaresGuard(['auth:web,admin'], 'web'));
+        $this->assertTrue(RouteProtectionDetector::middlewareDeclaresGuard(['auth:web,admin'], 'admin'));
+        $this->assertFalse(RouteProtectionDetector::middlewareDeclaresGuard(['auth:web'], 'admin'));
+        $this->assertFalse(RouteProtectionDetector::middlewareDeclaresGuard(['auth'], 'web'));
+    }
+
     public function test_alias_prefix_match_does_not_apply_to_fqcn(): void
     {
         // A FQCN like 'Filament\Http\Middleware\Authenticate' should NOT match

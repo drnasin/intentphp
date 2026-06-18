@@ -99,6 +99,55 @@ class AuthDriftDetectorTest extends TestCase
         $this->assertStringContainsString("guard 'api'", $items[0]->message);
     }
 
+    public function test_combined_guard_middleware_emits_no_drift(): void
+    {
+        // Regression #16: `auth:web,admin` must satisfy a `guard: web` requirement
+        // and must NOT produce a missing_guard_middleware drift finding.
+        $detector = new AuthDriftDetector();
+        $spec = $this->makeSpec(
+            rules: [
+                new AuthRule(
+                    id: 'admin-guard',
+                    match: new RouteSelector(prefix: '/admin'),
+                    require: new AuthRequirement(authenticated: true, guard: 'web'),
+                ),
+            ],
+            guards: ['web' => 'session'],
+        );
+        $context = $this->makeContext([
+            $this->route('/admin', '', ['GET'], ['auth:web,admin']),
+        ]);
+
+        $items = $detector->detect($spec, $context);
+        $this->assertSame([], $items);
+    }
+
+    public function test_guard_genuinely_missing_still_emits_drift(): void
+    {
+        // True-positive preserved: `auth:web` does not satisfy a `guard: admin` requirement.
+        $detector = new AuthDriftDetector();
+        $spec = $this->makeSpec(
+            rules: [
+                new AuthRule(
+                    id: 'admin-guard',
+                    match: new RouteSelector(prefix: '/admin'),
+                    require: new AuthRequirement(authenticated: true, guard: 'admin'),
+                ),
+            ],
+            guards: ['admin' => 'session'],
+        );
+        $context = $this->makeContext([
+            $this->route('/admin', '', ['GET'], ['auth:web']),
+        ]);
+
+        $items = $detector->detect($spec, $context);
+
+        $this->assertCount(1, $items);
+        $this->assertSame('missing_guard_middleware', $items[0]->driftType);
+        $this->assertSame('high', $items[0]->severity);
+        $this->assertStringContainsString("guard 'admin'", $items[0]->message);
+    }
+
     public function test_public_route_no_middleware_emits_no_drift(): void
     {
         $detector = new AuthDriftDetector();

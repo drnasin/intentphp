@@ -52,11 +52,35 @@ final readonly class RouteProtectionDetector
      */
     public function hasGuardMiddleware(array $middlewares, string $guard): bool
     {
-        $expected = 'auth:' . $guard;
+        return self::middlewareDeclaresGuard($middlewares, $guard);
+    }
+
+    /**
+     * Shared guard-matching logic.
+     *
+     * Parses Laravel's `auth:` parameter list and checks guard membership.
+     * Combined-guard syntax (`auth:web,admin`) declares multiple guards in a
+     * single middleware declaration; the required guard matches if it is a
+     * member of that list. A plain `auth` declaration (no parameters) declares
+     * no specific guard, so it never satisfies a specific-guard requirement.
+     *
+     * @param string[] $middlewares
+     */
+    public static function middlewareDeclaresGuard(array $middlewares, string $guard): bool
+    {
+        $guard = trim($guard);
 
         foreach ($middlewares as $middleware) {
-            if ($middleware === $expected) {
-                return true;
+            if (! str_starts_with($middleware, 'auth:')) {
+                continue;
+            }
+
+            $params = substr($middleware, strlen('auth:'));
+
+            foreach (explode(',', $params) as $declaredGuard) {
+                if (trim($declaredGuard) === $guard) {
+                    return true;
+                }
             }
         }
 
