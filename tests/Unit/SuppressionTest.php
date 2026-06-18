@@ -111,6 +111,81 @@ class SuppressionTest extends TestCase
         $this->assertSame([], $manager->load('/nonexistent/path.json'));
     }
 
+    public function test_baseline_load_array_of_strings_does_not_throw_and_returns_empty(): void
+    {
+        $path = sys_get_temp_dir() . '/guard_test_baseline_' . uniqid() . '.json';
+        file_put_contents($path, json_encode(['abc', 'def']));
+
+        $manager = new BaselineManager();
+        $result = $manager->load($path);
+
+        $this->assertSame([], $result);
+
+        @unlink($path);
+    }
+
+    public function test_baseline_load_mixed_entries_returns_only_valid_fingerprints(): void
+    {
+        $path = sys_get_temp_dir() . '/guard_test_baseline_' . uniqid() . '.json';
+        file_put_contents($path, json_encode([
+            ['fingerprint' => 'abc123'],
+            'junk_string',
+            ['no_fp' => true],
+        ]));
+
+        $manager = new BaselineManager();
+        $result = $manager->load($path);
+
+        $this->assertSame(['abc123'], $result);
+
+        @unlink($path);
+    }
+
+    public function test_baseline_load_entry_missing_fingerprint_key_is_excluded(): void
+    {
+        $path = sys_get_temp_dir() . '/guard_test_baseline_' . uniqid() . '.json';
+        file_put_contents($path, json_encode([
+            ['check' => 'some-check', 'severity' => 'high'],
+        ]));
+
+        $manager = new BaselineManager();
+        $result = $manager->load($path);
+
+        $this->assertSame([], $result);
+
+        @unlink($path);
+    }
+
+    public function test_baseline_load_non_string_fingerprint_value_is_excluded_without_throw(): void
+    {
+        $path = sys_get_temp_dir() . '/guard_test_baseline_' . uniqid() . '.json';
+        file_put_contents($path, json_encode([
+            ['fingerprint' => 123],
+            ['fingerprint' => ['nested' => 'array']],
+            ['fingerprint' => 'valid-fp'],
+        ]));
+
+        $manager = new BaselineManager();
+        $result = $manager->load($path);
+
+        $this->assertSame(['valid-fp'], $result);
+
+        @unlink($path);
+    }
+
+    public function test_baseline_load_top_level_non_array_returns_empty(): void
+    {
+        $path = sys_get_temp_dir() . '/guard_test_baseline_' . uniqid() . '.json';
+        file_put_contents($path, json_encode('not-an-array'));
+
+        $manager = new BaselineManager();
+        $result = $manager->load($path);
+
+        $this->assertSame([], $result);
+
+        @unlink($path);
+    }
+
     public function test_baseline_suppresses_matching_findings(): void
     {
         $findings = [
