@@ -92,9 +92,63 @@ class FingerprintTest extends TestCase
             context: ['model' => 'Post', 'pattern' => 'create with $request->all()'],
         );
 
-        // Line changed but model+pattern same — fingerprints differ because line is included
-        // This is by design: each occurrence is tracked individually
+        // Line changed but model+pattern same — fingerprints differ because line is included.
+        // This is by design: each occurrence is tracked individually.
         $this->assertNotSame($a->fingerprint(), $b->fingerprint());
+    }
+
+    /**
+     * (a) Two dangerous-query findings identical except for line produce DIFFERENT
+     * fingerprints — compute() incorporates line so each occurrence is tracked
+     * individually, even when the identifier component (sink+pattern) is the same.
+     */
+    public function test_dangerous_query_findings_differing_only_by_line_produce_different_fingerprints(): void
+    {
+        $a = Finding::high(
+            check: 'dangerous-query-input',
+            message: 'Dangerous query.',
+            file: 'app/Http/Controllers/SearchController.php',
+            line: 42,
+            context: ['sink' => 'orderBy', 'pattern' => 'raw_user_input'],
+        );
+
+        $b = Finding::high(
+            check: 'dangerous-query-input',
+            message: 'Dangerous query.',
+            file: 'app/Http/Controllers/SearchController.php',
+            line: 55, // Only the line differs
+            context: ['sink' => 'orderBy', 'pattern' => 'raw_user_input'],
+        );
+
+        // Line is part of the fingerprint tuple by design — each occurrence is distinct.
+        $this->assertNotSame($a->fingerprint(), $b->fingerprint());
+    }
+
+    /**
+     * (b) Two dangerous-query findings with identical inputs (including line and
+     * identifier context) produce the SAME fingerprint — determinism/stability.
+     */
+    public function test_dangerous_query_findings_with_identical_inputs_produce_same_fingerprint(): void
+    {
+        $a = Finding::high(
+            check: 'dangerous-query-input',
+            message: 'Dangerous query.',
+            file: 'app/Http/Controllers/SearchController.php',
+            line: 42,
+            context: ['sink' => 'orderBy', 'pattern' => 'raw_user_input'],
+        );
+
+        $b = Finding::high(
+            check: 'dangerous-query-input',
+            message: 'Dangerous query.',
+            file: 'app/Http/Controllers/SearchController.php',
+            line: 42,
+            context: ['sink' => 'orderBy', 'pattern' => 'raw_user_input'],
+        );
+
+        // Identical inputs must always yield the same fingerprint (determinism).
+        $this->assertSame($a->fingerprint(), $b->fingerprint());
+        $this->assertSame(40, strlen($a->fingerprint())); // SHA-1 hex length
     }
 
     public function test_snippet_findings_use_snippet_hash(): void

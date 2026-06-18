@@ -6,6 +6,21 @@ namespace IntentPHP\Guard\Scan;
 
 class Fingerprint
 {
+    /**
+     * Compute a stable SHA-1 fingerprint for a finding.
+     *
+     * Identity tuple (pipe-separated before hashing):
+     *   check | severity | normalized-file-path | line | primary-identifier
+     *
+     * The line number is included so that each occurrence of the same logical
+     * issue at a different source location is tracked individually — two calls
+     * to the same sink on different lines are distinct findings and produce
+     * distinct fingerprints by design.
+     *
+     * Consequence: shifting a finding to a different line (e.g. adding a `use`
+     * import above it) changes its fingerprint and requires re-baselining
+     * (`php artisan guard:baseline`). Re-baselining is cheap and idempotent.
+     */
     public static function compute(Finding $finding): string
     {
         $parts = [
@@ -111,8 +126,15 @@ class Fingerprint
 
     /**
      * Dangerous-query identity is the sink method + pattern, NOT the raw source
-     * snippet — so reformatting the flagged line (or wrapping a long call across
-     * lines) does not churn the fingerprint and break baseline suppression.
+     * snippet — so reformatting the content of the flagged line (e.g. splitting
+     * a long call expression across multiple lines while keeping the start line
+     * the same) does not change this identifier component.
+     *
+     * However, compute() also incorporates the finding's line number into the
+     * full fingerprint. Moving the flagged call to a different line (e.g. by
+     * inserting a `use` import above it) therefore changes the overall
+     * fingerprint. If that happens, re-run `php artisan guard:baseline` to
+     * update the committed baseline.
      */
     private static function dangerousQueryIdentifier(Finding $finding): string
     {
