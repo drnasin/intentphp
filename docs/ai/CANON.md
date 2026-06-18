@@ -20,7 +20,7 @@ Capabilities (guard engine era):
 ## Core philosophy / hard rules (project contract)
 1) Never auto-modify user code (only diffs/patches/suggestions)
 2) Deterministic output only (CI-safe)
-3) Stable fingerprints (no timestamps, no absolute paths, avoid line numbers)
+3) Stable fingerprints across machines (no timestamps, no absolute paths). The finding's line number is part of its identity for per-occurrence tracking; per-check primary identifiers stay line-independent (see DECISIONS D-006)
 4) Additive checks/features only; backward compatibility first
 5) Intent Spec optional: missing intent file must not change Guard behavior
 6) DTO/spec layer must be framework-free (no container/runtime coupling)

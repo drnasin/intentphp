@@ -25,7 +25,7 @@ Status: accepted
 Rationale: offline usage + reproducibility + security boundaries.
 Consequence: mockable provider; no network calls in unit tests; redaction default.
 
-## D-006: Fingerprints must avoid volatile inputs
+## D-006: Fingerprints must avoid machine-volatile inputs
 Status: accepted
 Rationale: baseline stability across machines/runs.
-Consequence: no timestamps, no absolute paths; line numbers only if unavoidable.
+Consequence: no timestamps, no absolute paths (paths normalized to a repo-relative form). The finding's line number IS included as part of identity so each occurrence is tracked individually — it is stable across machines but shifts when surrounding code moves, so large edits may require a re-baseline (see issue #17). Per-check primary identifiers stay line-independent (route methods+uri+action, model FQCN, dangerous-query sink+pattern).
