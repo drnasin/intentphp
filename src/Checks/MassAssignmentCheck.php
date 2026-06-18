@@ -81,31 +81,40 @@ class MassAssignmentCheck implements CheckInterface
         $finder->files()->in($this->modelsPath)->name('*.php');
 
         foreach ($finder as $file) {
-            $contents = $file->getContents();
-            $className = $this->extractClassName($contents);
+            $filePath = $file->getRealPath();
+            $stmts = $this->ast->parse($filePath, $file->getContents());
 
-            if ($className === null) {
+            if ($stmts === null) {
+                continue; // parse error recorded on the shared parser; surfaced by the command
+            }
+
+            $class = $this->findModelClass($stmts);
+
+            if ($class === null || $class->name === null) {
                 continue;
             }
 
-            if (! $this->extendsModel($contents)) {
+            if (! $this->extendsModel($class)) {
                 continue;
             }
 
-            $hasFillable = (bool) preg_match('/\$fillable\s*=\s*\[/', $contents);
-            $hasGuarded = (bool) preg_match('/\$guarded\s*=/', $contents);
-            $guardedEmpty = (bool) preg_match('/\$guarded\s*=\s*\[\s*\]/', $contents);
-            // Matches $guarded = ['*'] / ["*"] (the explicit "guard everything" form).
-            $guardedAll = (bool) preg_match('/\$guarded\s*=\s*\[\s*([\'"])\*\1\s*\]/', $contents);
+            $className = $class->name->toString();
+
+            $hasFillable = $this->propertyDefault($class, 'fillable') !== null;
+            $guarded = $this->propertyDefault($class, 'guarded');
+            $hasGuarded = $guarded !== null;
+            $guardedEmpty = $hasGuarded && $this->isEmptyArray($guarded);
+            // $guarded = ['*'] / ["*"] — the explicit "guard everything" form.
+            $guardedAll = $hasGuarded && $this->isGuardAllArray($guarded);
 
             if ($guardedEmpty) {
                 $unsafe[$className] = [
-                    'file' => $file->getRealPath(),
+                    'file' => $filePath,
                     'reason' => '$guarded is set to an empty array — all attributes are mass assignable',
                 ];
             } elseif ($hasGuarded && ! $guardedAll && ! $hasFillable) {
                 $unsafe[$className] = [
-                    'file' => $file->getRealPath(),
+                    'file' => $filePath,
                     'reason' => '$guarded is a partial allowlist with no $fillable — all non-guarded attributes are mass assignable',
                 ];
             }
@@ -396,18 +405,79 @@ class MassAssignmentCheck implements CheckInterface
         return mb_strlen($text) > 200 ? mb_substr($text, 0, 200) . '…' : $text;
     }
 
-    private function extractClassName(string $contents): ?string
+    /**
+     * First non-anonymous class declaration in the file. Reading the AST node
+     * (rather than the first `class\s+(\w+)` text match) means a `class` keyword
+     * in a comment/string, a `Foo::class` constant, or an anonymous `new class`
+     * no longer mis-identifies the model.
+     *
+     * @param list<Node\Stmt> $stmts
+     */
+    private function findModelClass(array $stmts): ?Node\Stmt\Class_
     {
-        if (preg_match('/class\s+(\w+)/', $contents, $matches)) {
-            return $matches[1];
+        foreach ((new NodeFinder())->findInstanceOf($stmts, Node\Stmt\Class_::class) as $class) {
+            /** @var Node\Stmt\Class_ $class */
+            if ($class->name !== null) {
+                return $class;
+            }
         }
 
         return null;
     }
 
-    private function extendsModel(string $contents): bool
+    /**
+     * True when the class directly extends a known Eloquent base by short name
+     * (Model / Authenticatable / Pivot). NameResolver gives the resolved parent,
+     * so the short-name check is robust to aliasing.
+     *
+     * Bounded by design: a project base class (`extends BaseModel`) is NOT
+     * resolved across files — see findUnsafeModels()'s docblock. Such a model
+     * reads as a non-Eloquent class here, preserving the documented limitation.
+     */
+    private function extendsModel(Node\Stmt\Class_ $class): bool
     {
-        return (bool) preg_match('/extends\s+(Model|Authenticatable|Pivot)\b/', $contents);
+        if ($class->extends === null) {
+            return false;
+        }
+
+        return in_array($class->extends->getLast(), ['Model', 'Authenticatable', 'Pivot'], true);
+    }
+
+    /**
+     * The default-value expression of the named property ($fillable / $guarded),
+     * or null when the class does not declare it. Reading the property node skips
+     * any occurrence inside a comment, docblock, or string literal.
+     */
+    private function propertyDefault(Node\Stmt\Class_ $class, string $name): ?Expr
+    {
+        foreach ($class->getProperties() as $property) {
+            foreach ($property->props as $prop) {
+                if ($prop->name->toString() === $name) {
+                    return $prop->default;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function isEmptyArray(Expr $expr): bool
+    {
+        return $expr instanceof Expr\Array_ && $expr->items === [];
+    }
+
+    /**
+     * True for the explicit "guard everything" form $guarded = ['*'].
+     */
+    private function isGuardAllArray(Expr $expr): bool
+    {
+        if (! $expr instanceof Expr\Array_ || count($expr->items) !== 1) {
+            return false;
+        }
+
+        $value = $expr->items[0]->value;
+
+        return $value instanceof Node\Scalar\String_ && $value->value === '*';
     }
 
     /**

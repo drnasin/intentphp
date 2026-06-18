@@ -3,7 +3,7 @@
 [![Tests](https://github.com/drnasin/intentphp/actions/workflows/tests.yml/badge.svg)](https://github.com/drnasin/intentphp/actions/workflows/tests.yml)
 [![Latest Version](https://img.shields.io/github/v/release/drnasin/intentphp?display_name=tag&sort=semver)](https://github.com/drnasin/intentphp/releases)
 [![PHP](https://img.shields.io/badge/php-8.2%2B-8892BF)](https://php.net)
-[![Laravel](https://img.shields.io/badge/laravel-10%20%7C%2011%20%7C%2012%20%7C%2013-FF2D20)](https://laravel.com)
+[![Laravel](https://img.shields.io/badge/laravel-12%20%7C%2013-FF2D20)](https://laravel.com)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A Laravel CLI tool that scans your application for common security risks: authorization gaps, unsafe query input, and mass assignment vulnerabilities.
@@ -59,7 +59,7 @@ Add the last command to CI — Guard will now fail builds only on **new** securi
 ## Requirements
 
 - PHP 8.2+
-- Laravel 10, 11, 12, or 13
+- Laravel 12 or 13
 
 ## Installation
 

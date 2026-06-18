@@ -4,7 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-_No entries yet._
+Security/correctness sweep closing an external repository audit (issues #14–#19), plus a runtime-support change forced by a Laravel advisory.
+
+### 🔴 Upgrade Notes
+
+- **Dropped Laravel 10 and 11 support.** `illuminate/{support,console,routing}` constraints are now `^12.61.1|^13.12.0` and `orchestra/testbench` is `^10.0|^11.0`. This is required by advisory [GHSA-crmm-hgp2-wgrp](https://github.com/advisories/GHSA-crmm-hgp2-wgrp) ("Temporary Signed URL Path Confusion"), which is patched only in Laravel 12.61.1 / 13.12.0 — there is no fixed release on the 10.x or 11.x lines, so they can no longer pass `composer audit`. Consumers on Laravel 10/11 must upgrade to 12.61.1+ / 13.12.0+ to use this version. The CI matrix is reduced to Laravel 12.* and 13.*.
+- **Route-authorization may surface new findings.** The flagship check no longer mis-reads a method whose body merely contains the substring `can(` (e.g. `scan()`, `rescan()`) as authorized; genuinely unprotected routes that were silently passing will now be flagged correctly. Triage or re-baseline.
+
+### Fixed
+
+- **Route-authorization false negatives (#14):** authorization tokens `can(`/`cannot(` were matched as unanchored substrings over raw method source, so methods calling `scan()`/`rescan()`/`lifespan()` were misclassified as authorized. Tokens are now anchored to a call boundary (`->can(`, `->cannot(`) and comment/string-literal contents are stripped (via `token_get_all()`) before matching, in both the method and constructor `authorizeResource` paths.
+- **Combined-guard middleware false positive (#16):** the intent guard matcher used exact equality `auth:{guard}`, so Laravel's combined-guard syntax `auth:web,admin` was reported as missing the guard — a false-positive HIGH `intent-auth`/`missing_guard_middleware` finding that gated CI. The matcher now parses the `auth:` parameter list and checks membership. The duplicated copy in `AuthDriftDetector` was removed in favour of a single shared `RouteProtectionDetector::middlewareDeclaresGuard()`.
+- **Mass-assignment classification false positives/negatives (#15):** model classification ran `$fillable`/`$guarded` regexes over raw file contents (matching inside comments/strings) and `extractClassName()` returned the first textual `class` match. Classification now reads the `$fillable`/`$guarded` property nodes and the class name from the AST (consistent with the check's existing `AstParser` use). The cross-file parent-class inheritance limitation (`extends BaseModel`) remains documented and is now pinned by a test.
+- **Malformed baseline aborts the scan (#19):** a wrong-shaped `baseline.json` (e.g. an array of strings) threw an uncaught `TypeError` in `BaselineManager::load()`. Malformed/partial entries are now filtered out and the scan degrades to an empty/partial suppression set instead of crashing.
+
+### Changed
+
+- **`guard:apply` no longer shells out (#18):** the `git apply --check` dry-run now runs through a Symfony `Process` array instead of the only `exec()` shell-string call site, matching `GitHelper`/`SymfonyProcessRunner`. Behaviour, exit codes, and output are unchanged.
+- **Fingerprint contract documented (#17):** corrected the misleading `dangerousQueryIdentifier` docblock that implied line-independence; `compute()` includes the finding's line by design (per-occurrence tracking), so line shifts churn the fingerprint and require re-baselining. No fingerprint output changed.
 
 ---
 

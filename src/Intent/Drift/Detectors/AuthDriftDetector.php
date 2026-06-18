@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace IntentPHP\Guard\Intent\Drift\Detectors;
 
+use IntentPHP\Guard\Checks\RouteProtectionDetector;
 use IntentPHP\Guard\Intent\Auth\AuthRequirement;
 use IntentPHP\Guard\Intent\Auth\AuthRule;
 use IntentPHP\Guard\Intent\Drift\Context\ObservedRoute;
@@ -189,7 +190,7 @@ final class AuthDriftDetector implements DriftDetectorInterface
             );
         }
 
-        if ($requirement->guard !== null && ! $this->hasGuardMiddleware($route->middleware, $requirement->guard)) {
+        if ($requirement->guard !== null && ! RouteProtectionDetector::middlewareDeclaresGuard($route->middleware, $requirement->guard)) {
             return new DriftItem(
                 detector: $this->name(),
                 driftType: 'missing_guard_middleware',
@@ -213,20 +214,6 @@ final class AuthDriftDetector implements DriftDetectorInterface
                 if ($middleware === $authMiddleware || str_starts_with($middleware, $authMiddleware . ':')) {
                     return true;
                 }
-            }
-        }
-
-        return false;
-    }
-
-    /** @param string[] $middlewares */
-    private function hasGuardMiddleware(array $middlewares, string $guard): bool
-    {
-        $expected = 'auth:' . $guard;
-
-        foreach ($middlewares as $middleware) {
-            if ($middleware === $expected) {
-                return true;
             }
         }
 

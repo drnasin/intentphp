@@ -75,10 +75,15 @@ class BaselineManager
             return [];
         }
 
-        return array_map(
-            fn (array $entry) => $entry['fingerprint'] ?? '',
-            $data,
-        );
+        return array_values(array_filter(
+            array_map(
+                static fn (mixed $entry): string => (is_array($entry) && isset($entry['fingerprint']) && is_string($entry['fingerprint']))
+                    ? $entry['fingerprint']
+                    : '',
+                $data,
+            ),
+            static fn (string $fp): bool => $fp !== '',
+        ));
     }
 
     /**
