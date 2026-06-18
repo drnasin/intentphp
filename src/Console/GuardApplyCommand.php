@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IntentPHP\Guard\Console;
 
 use Illuminate\Console\Command;
+use Symfony\Component\Process\Process;
 
 class GuardApplyCommand extends Command
 {
@@ -61,16 +62,17 @@ class GuardApplyCommand extends Command
 
         // Dry-run: check if patch applies cleanly
         $escapedPath = escapeshellarg($patchPath);
-        $basePath = escapeshellarg(base_path());
-        $checkCmd = "git -C {$basePath} apply --check {$escapedPath} 2>&1";
 
-        exec($checkCmd, $output, $exitCode);
+        $process = new Process(['git', '-C', base_path(), 'apply', '--check', $patchPath]);
+        $process->run();
+        $exitCode = $process->getExitCode();
 
         if ($exitCode === 0) {
             $this->info('Patch applies cleanly.');
         } else {
             $this->warn('Patch may not apply cleanly:');
-            foreach ($output as $line) {
+            $combined = $process->getOutput() . $process->getErrorOutput();
+            foreach (explode("\n", rtrim($combined)) as $line) {
                 $this->line("  {$line}");
             }
         }
