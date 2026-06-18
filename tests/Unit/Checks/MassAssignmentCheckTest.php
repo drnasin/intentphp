@@ -409,6 +409,154 @@ class MassAssignmentCheckTest extends TestCase
         $this->assertSame([], $findings);
     }
 
+    /** Write a model file verbatim (caller controls the full source). */
+    private function rawModel(string $class, string $source): void
+    {
+        file_put_contents($this->modelsPath . "/{$class}.php", $source);
+    }
+
+    public function test_guarded_empty_only_in_comment_is_not_flagged(): void
+    {
+        // #15 false positive: $guarded = [] appears ONLY inside a docblock; the
+        // real declaration is a $fillable allowlist. AST reads the property
+        // nodes, not raw text, so the model is correctly treated as safe.
+        $this->rawModel('Article', <<<'PHP'
+        <?php
+        namespace App\Models;
+        use Illuminate\Database\Eloquent\Model;
+        class Article extends Model
+        {
+            /**
+             * Do NOT do this:
+             *   protected $guarded = [];
+             */
+            protected $fillable = ['title', 'body'];
+        }
+        PHP);
+
+        $findings = $this->runAgainst('        Article::create($request->all());');
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_guarded_empty_only_in_string_is_not_flagged(): void
+    {
+        // #15 false positive variant: the substring lives in a string literal.
+        $this->rawModel('Note', <<<'PHP'
+        <?php
+        namespace App\Models;
+        use Illuminate\Database\Eloquent\Model;
+        class Note extends Model
+        {
+            public const HINT = 'never write protected $guarded = [];';
+            protected $fillable = ['body'];
+        }
+        PHP);
+
+        $findings = $this->runAgainst('        Note::create($request->all());');
+
+        $this->assertSame([], $findings);
+    }
+
+    public function test_genuine_empty_guarded_is_still_flagged(): void
+    {
+        // Inverse guard: a real $guarded = [] in code must still be flagged
+        // (the AST rewrite must not over-correct into a false negative).
+        $this->rawModel('Wide', <<<'PHP'
+        <?php
+        namespace App\Models;
+        use Illuminate\Database\Eloquent\Model;
+        class Wide extends Model
+        {
+            // example only: protected $fillable = ['safe'];
+            protected $guarded = [];
+        }
+        PHP);
+
+        $findings = $this->runAgainst('        Wide::create($request->all());');
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+        $this->assertStringContainsString('empty array', $findings[0]->message);
+    }
+
+    public function test_class_keyword_in_comment_before_real_class_resolves_correctly(): void
+    {
+        // #15 extractClassName: a `class` keyword in a leading comment, plus a
+        // ::class constant, must not be mistaken for the class declaration.
+        // The real (unsafe) class is Order — it must be flagged under that name.
+        $this->rawModel('Order', <<<'PHP'
+        <?php
+        namespace App\Models;
+        use Illuminate\Database\Eloquent\Model;
+        // This class extends Decoy and is totally safe (it is not).
+        class Order extends Model
+        {
+            public const REF = \App\Models\Decoy::class;
+            protected $guarded = [];
+        }
+        PHP);
+
+        $findings = $this->runAgainst('        Order::create($request->all());');
+
+        $this->assertCount(1, $findings);
+        $this->assertSame('high', $findings[0]->severity);
+        // The finding's model is the real declaration, Order — not "Decoy".
+        $this->assertSame('Order', $findings[0]->context['model']);
+    }
+
+    public function test_helper_class_before_model_is_not_mis_identified(): void
+    {
+        // First class in the file is a non-Eloquent helper; the actual model is
+        // the second class. findModelClass returns the first NAMED class, and
+        // extendsModel gates on the Eloquent base — so a leading helper that is
+        // unsafe-looking must not cause OpenModel-style flagging via the helper.
+        // Here the helper has $guarded=[] but does NOT extend Model → ignored;
+        // the model extends Model with a $fillable allowlist → safe.
+        $this->rawModel('Mixed', <<<'PHP'
+        <?php
+        namespace App\Models;
+        use Illuminate\Database\Eloquent\Model;
+        class MixedHelper
+        {
+            protected $guarded = [];
+        }
+        class MixedModel extends Model
+        {
+            protected $fillable = ['name'];
+        }
+        PHP);
+
+        // OpenModel keeps the unsafe set non-empty so the controller scan runs.
+        $this->model('OpenModel', '    protected $guarded = [];');
+
+        $findings = $this->runAgainst('        MixedModel::create($request->all());');
+
+        // MixedModel is safe (fillable) and MixedHelper is not Eloquent → no flag
+        // for this static create (anchored to unsafe models).
+        $this->assertSame([], $findings);
+    }
+
+    public function test_extends_project_base_class_remains_unresolved(): void
+    {
+        // #15 (C) decision: inheritance is NOT resolved across files (documented
+        // limitation, finder docblock). A model extending a project base class
+        // reads as a non-Eloquent class and is treated safe. Pinned so the
+        // bounded scope is intentional, not accidental.
+        $this->rawModel('Post', <<<'PHP'
+        <?php
+        namespace App\Models;
+        class Post extends BaseModel
+        {
+            protected $guarded = [];
+        }
+        PHP);
+
+        $findings = $this->runAgainst('        Post::create($request->all());');
+
+        $this->assertSame([], $findings);
+    }
+
     private function rrmdir(string $dir): void
     {
         if (! is_dir($dir)) {
