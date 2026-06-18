@@ -223,8 +223,14 @@ class RouteAuthorizationCheck implements CheckInterface
         }
 
         $methodBody = implode('', array_slice($lines, $startLine - 1, $endLine - $startLine + 1));
+        $methodBody = $this->stripCommentsAndStrings($methodBody);
 
-        return (bool) preg_match('/(\$this->authorize\(|Gate::authorize\(|Gate::allows\(|Gate::denies\(|Gate::check\(|\$this->authorizeResource\(|can\(|cannot\()/', $methodBody);
+        // `->can(` / `->cannot(` are anchored to a real call boundary (covers
+        // `$this->can(` and `$user->can(`) so method names that merely contain
+        // the substring "can(" — scan(), rescan(), lifespan() — are not misread
+        // as authorized. Comments and string literals were stripped above so
+        // these tokens only match real code.
+        return (bool) preg_match('/(\$this->authorize\(|Gate::authorize\(|Gate::allows\(|Gate::denies\(|Gate::check\(|\$this->authorizeResource\(|->can\(|->cannot\()/', $methodBody);
     }
 
     private function constructorCallsAuthorizeResource(string $action): bool
@@ -263,8 +269,48 @@ class RouteAuthorizationCheck implements CheckInterface
         }
 
         $constructorBody = implode('', array_slice($lines, $startLine - 1, $endLine - $startLine + 1));
+        $constructorBody = $this->stripCommentsAndStrings($constructorBody);
 
         return (bool) preg_match('/\$this->authorizeResource\(/', $constructorBody);
+    }
+
+    /**
+     * Remove comment and string-literal contents from a raw PHP source slice so
+     * authorization tokens are only matched in real code, not inside comments or
+     * strings. Deterministic, dependency-free (PHP core tokenizer).
+     *
+     * The slice is a method/constructor body, not a complete program, so it is
+     * prefixed with an open tag to tokenize. Interpolated strings keep their
+     * embedded variables/property accesses (e.g. `$this->authorize`) but lose the
+     * literal text around them (the `(` lands in an encapsed token), so a token
+     * appearing only inside a string never matches the anchored call patterns.
+     */
+    private function stripCommentsAndStrings(string $body): string
+    {
+        $tokens = @token_get_all('<?php ' . $body);
+
+        $out = '';
+        foreach ($tokens as $token) {
+            if (is_array($token)) {
+                $id = $token[0];
+
+                if ($id === \T_COMMENT || $id === \T_DOC_COMMENT) {
+                    continue;
+                }
+
+                if ($id === \T_CONSTANT_ENCAPSED_STRING || $id === \T_ENCAPSED_AND_WHITESPACE) {
+                    continue;
+                }
+
+                $out .= $token[1];
+
+                continue;
+            }
+
+            $out .= $token;
+        }
+
+        return $out;
     }
 
     private function methodHasFormRequest(string $action): bool
