@@ -14,11 +14,15 @@ use IntentPHP\Guard\Cache\ScanCache;
 use IntentPHP\Guard\Checks\AuthMiddlewareClassifier;
 use IntentPHP\Guard\Checks\DangerousQueryInputCheck;
 use IntentPHP\Guard\Checks\Intent\IntentDriftCheck;
+use IntentPHP\Guard\Checks\Invariant\InvariantCheck;
 use IntentPHP\Guard\Checks\IntentAuthCheck;
 use IntentPHP\Guard\Checks\IntentMassAssignmentCheck;
-use IntentPHP\Guard\Checks\MassAssignmentCheck;
 use IntentPHP\Guard\Checks\RouteAuthorizationCheck;
 use IntentPHP\Guard\Checks\RouteProtectionDetector;
+use IntentPHP\Guard\Invariant\InvariantInput;
+use IntentPHP\Guard\Invariant\InvariantRegistry;
+use IntentPHP\Guard\Invariant\Invariants\MassAssignmentInvariant;
+use IntentPHP\Guard\Invariant\Invariants\RouteAuthorizationInvariant;
 use IntentPHP\Guard\Git\GitHelper;
 use IntentPHP\Guard\Intent\Drift\Detectors\AuthDriftDetector;
 use IntentPHP\Guard\Intent\Drift\Detectors\MassAssignmentDriftDetector;
@@ -338,11 +342,30 @@ class GuardScanCommand extends Command
         // once, and parse errors are collected in a single place.
         $astParser = new AstParser();
 
+        // Phase 11: route-auth and mass-assignment are registry-driven invariants
+        // sharing one InvariantInput. Output is byte-identical to the prior checks
+        // (the invariant ids are the legacy check names — see DECISIONS D-007).
+        $invariantInput = new InvariantInput(
+            router: $router,
+            controllersPath: $controllersPath,
+            modelsPath: $modelsPath,
+            ast: $astParser,
+            changedFiles: $changedFiles,
+            detector: $detector,
+        );
+
+        $registry = new InvariantRegistry([
+            new RouteAuthorizationInvariant($publicRoutes, $skipGuestRoutes, $skipInfraRoutes),
+            new MassAssignmentInvariant(),
+        ]);
+
         $checks = [
-            new RouteAuthorizationCheck($router, [], $publicRoutes, $detector, $skipGuestRoutes, $skipInfraRoutes),
             new DangerousQueryInputCheck($controllersPath, $changedFiles, $astParser),
-            new MassAssignmentCheck($modelsPath, $controllersPath, $changedFiles, $astParser),
         ];
+
+        foreach ($registry->all() as $invariant) {
+            $checks[] = new InvariantCheck($invariant, $invariantInput);
+        }
 
         if ($intentContext !== null) {
             $spec = $intentContext->spec;
